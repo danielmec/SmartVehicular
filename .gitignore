@@ -1,0 +1,11 @@
+# Ignora tutto di default
+*
+
+# Consenti a Git di esplorare le cartelle per trovare i file inclusi
+!*/
+
+# Non ignorare la cartella vers2 e tutto il suo contenuto
+!vers2/**
+
+# Non ignorare questo file .gitignore
+!.gitignore
