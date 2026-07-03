@@ -1,8 +1,0 @@
-batch_id,run_label,weather,corruption,severity,total_frames,detection_frames,detection_rate,first_detection_distance_m,min_distance_m,status
-20260619_182225,clear_none0,clear,none,0,59,7,0.1186,15.204,2.348,ok
-20260619_182225,rain_none0,rain,none,0,53,3,0.0566,7.21,2.727,ok
-20260619_182225,fog_none0,fog,none,0,58,5,0.0862,14.167,2.687,ok
-20260619_182225,night_none0,night,none,0,64,10,0.1562,17.022,2.039,ok
-20260619_182225,backlight_none0,backlight,none,0,54,5,0.0926,14.503,2.508,ok
-20260619_182225,clear_blur1,clear,blur,1,65,3,0.0462,8.868,2.972,ok
-20260619_182225,clear_blur2,clear,blur,2,67,3,0.0448,7.905,2.379,ok
