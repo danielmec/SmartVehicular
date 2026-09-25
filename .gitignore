@@ -9,3 +9,6 @@
 
 # Non ignorare questo file .gitignore
 !.gitignore
+
+# Ignora gli output batch vecchi
+vers2/old_batches
