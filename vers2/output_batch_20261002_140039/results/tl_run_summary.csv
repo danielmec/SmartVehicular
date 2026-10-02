@@ -1,0 +1,8 @@
+batch_id,run_label,weather,corruption,severity,total_frames,detection_frames,detection_rate,first_detection_distance_m,first_detection_elapsed_s,warning_delay_s,min_distance_m,miss_rate,false_positive_count,critical_zone_frames,critical_zone_misses,status
+TL_20261002_142147,tl_clear_none0,clear,none,0,276,78,0.2826,71.868,1.943,0.0,7.934,0.6795,4,78,53,ok
+TL_20261002_142147,tl_rain_none0,rain,none,0,276,68,0.2464,47.155,7.986,0.0,7.934,0.8462,0,78,66,ok
+TL_20261002_142147,tl_fog_none0,fog,none,0,276,70,0.2536,44.508,7.212,0.0,7.934,0.6795,0,78,53,ok
+TL_20261002_142147,tl_night_none0,night,none,0,276,43,0.1558,41.028,10.562,0.0,7.934,0.9487,0,78,74,ok
+TL_20261002_142147,tl_backlight_none0,backlight,none,0,276,74,0.2681,44.508,7.293,0.0,7.934,0.6667,0,78,52,ok
+TL_20261002_142147,tl_clear_blur1,clear,blur,1,276,84,0.3043,71.868,0.474,0.0,7.934,0.7692,13,78,60,ok
+TL_20261002_142147,tl_clear_blur2,clear,blur,2,276,18,0.0652,54.4,5.968,0.0,7.934,0.9744,0,78,76,ok
