@@ -1,0 +1,201 @@
+{
+  "checks": [
+    {
+      "controllo": "ped_clear: run completato",
+      "esito": "PASS",
+      "dettaglio": "status=ok, frame=219"
+    },
+    {
+      "controllo": "ped_clear: meteo applicato",
+      "esito": "PASS",
+      "dettaglio": ""
+    },
+    {
+      "controllo": "ped_clear: passo tempo simulato",
+      "esito": "PASS",
+      "dettaglio": "passi trovati: [0.05]"
+    },
+    {
+      "controllo": "ped_clear: velocità costante dopo la rampa",
+      "esito": "PASS",
+      "dettaglio": "30.0-30.0 km/h dal frame 72 (attesa 30)"
+    },
+    {
+      "controllo": "ped_clear: nessuno sbandamento",
+      "esito": "PASS",
+      "dettaglio": "deriva laterale max 0.03 m, variazione direzione max 0.04°"
+    },
+    {
+      "controllo": "ped_clear: target visibile",
+      "esito": "PASS",
+      "dettaglio": "214 frame"
+    },
+    {
+      "controllo": "ped_clear: ground truth allineata",
+      "esito": "PASS",
+      "dettaglio": "100% dei 50 frame entro 25 m con una detection sul box GT (IoU mediana 0.73)"
+    },
+    {
+      "controllo": "ped_backlight: run completato",
+      "esito": "PASS",
+      "dettaglio": "status=ok, frame=219"
+    },
+    {
+      "controllo": "ped_backlight: meteo applicato",
+      "esito": "PASS",
+      "dettaglio": ""
+    },
+    {
+      "controllo": "ped_backlight: passo tempo simulato",
+      "esito": "PASS",
+      "dettaglio": "passi trovati: [0.05]"
+    },
+    {
+      "controllo": "ped_backlight: velocità costante dopo la rampa",
+      "esito": "PASS",
+      "dettaglio": "30.0-30.0 km/h dal frame 72 (attesa 30)"
+    },
+    {
+      "controllo": "ped_backlight: nessuno sbandamento",
+      "esito": "PASS",
+      "dettaglio": "deriva laterale max 0.03 m, variazione direzione max 0.04°"
+    },
+    {
+      "controllo": "ped_backlight: target visibile",
+      "esito": "PASS",
+      "dettaglio": "214 frame"
+    },
+    {
+      "controllo": "ped_backlight: ground truth allineata",
+      "esito": "PASS",
+      "dettaglio": "100% dei 50 frame entro 25 m con una detection sul box GT (IoU mediana 0.72)"
+    },
+    {
+      "controllo": "tl_clear: run completato",
+      "esito": "PASS",
+      "dettaglio": "status=ok, frame=124"
+    },
+    {
+      "controllo": "tl_clear: meteo applicato",
+      "esito": "PASS",
+      "dettaglio": ""
+    },
+    {
+      "controllo": "tl_clear: passo tempo simulato",
+      "esito": "PASS",
+      "dettaglio": "passi trovati: [0.05]"
+    },
+    {
+      "controllo": "tl_clear: velocità costante dopo la rampa",
+      "esito": "PASS",
+      "dettaglio": "29.3-30.6 km/h dal frame 72 (attesa 30)"
+    },
+    {
+      "controllo": "tl_clear: nessuno sbandamento",
+      "esito": "PASS",
+      "dettaglio": "deriva laterale max 0.00 m, variazione direzione max 0.00°"
+    },
+    {
+      "controllo": "tl_clear: target visibile",
+      "esito": "PASS",
+      "dettaglio": "124 frame"
+    },
+    {
+      "controllo": "tl_clear: ground truth allineata",
+      "esito": "PASS",
+      "dettaglio": "100% dei 47 frame entro 20 m con una detection sul box GT (IoU mediana 0.76)"
+    },
+    {
+      "controllo": "tl_clear: semaforo rosso classificato rosso",
+      "esito": "PASS",
+      "dettaglio": "state_accuracy=0.9537"
+    },
+    {
+      "controllo": "tl_clear: target = semaforo della corsia",
+      "esito": "PASS",
+      "dettaglio": "target ID=12, semaforo dell'ego secondo CARLA: 12, linea d'arresto a 38.37 m"
+    }
+  ],
+  "runs": {
+    "ped_clear": {
+      "batch_id": "SMOKE",
+      "run_label": "clear_none0",
+      "weather": "clear",
+      "corruption": "none",
+      "severity": 0,
+      "total_frames": 219,
+      "detection_frames": 62,
+      "detection_rate": 0.2897,
+      "first_detection_distance_m": 29.978,
+      "first_detection_elapsed_s": 7.65,
+      "warning_delay_s": 0.0,
+      "min_distance_m": 2.644,
+      "miss_rate": 0.0,
+      "gt_visible_frames": 214,
+      "false_negatives": 152,
+      "false_positive_count": 10,
+      "precision": 0.8611,
+      "fp_per_frame": 0.0457,
+      "critical_zone_frames": 62,
+      "critical_zone_misses": 0,
+      "weather_params": "{\"cloudiness\": 0.0, \"precipitation\": 0.0, \"precipitation_deposits\": 0.0, \"wind_intensity\": 0.0, \"sun_azimuth_angle\": 0.0, \"sun_altitude_angle\": 70.0, \"fog_density\": 0.0, \"fog_distance\": 0.0, \"fog_falloff\": 0.0, \"wetness\": 0.0, \"scattering_intensity\": 1.0, \"mie_scattering_scale\": 0.03, \"rayleigh_scattering_scale\": 0.0331, \"dust_storm\": 0.0}",
+      "weather_ok": true,
+      "status": "ok"
+    },
+    "ped_backlight": {
+      "batch_id": "SMOKE",
+      "run_label": "backlight_none0",
+      "weather": "backlight",
+      "corruption": "none",
+      "severity": 0,
+      "total_frames": 219,
+      "detection_frames": 66,
+      "detection_rate": 0.3084,
+      "first_detection_distance_m": 31.644,
+      "first_detection_elapsed_s": 7.45,
+      "warning_delay_s": 0.0,
+      "min_distance_m": 2.644,
+      "miss_rate": 0.0,
+      "gt_visible_frames": 214,
+      "false_negatives": 148,
+      "false_positive_count": 40,
+      "precision": 0.6226,
+      "fp_per_frame": 0.1826,
+      "critical_zone_frames": 62,
+      "critical_zone_misses": 0,
+      "weather_params": "{\"cloudiness\": 0.0, \"precipitation\": 0.0, \"precipitation_deposits\": 0.0, \"wind_intensity\": 0.0, \"sun_azimuth_angle\": 180.0, \"sun_altitude_angle\": 8.0, \"fog_density\": 0.0, \"fog_distance\": 0.0, \"fog_falloff\": 0.0, \"wetness\": 0.0, \"scattering_intensity\": 1.0, \"mie_scattering_scale\": 0.03, \"rayleigh_scattering_scale\": 0.0331, \"dust_storm\": 0.0}",
+      "weather_ok": true,
+      "status": "ok"
+    },
+    "tl_clear": {
+      "batch_id": "SMOKE",
+      "run_label": "tl_clear_none0",
+      "weather": "clear",
+      "corruption": "none",
+      "severity": 0,
+      "total_frames": 124,
+      "detection_frames": 108,
+      "detection_rate": 0.871,
+      "state_accuracy": 0.9537,
+      "first_detection_distance_m": 38.374,
+      "first_detection_elapsed_s": 0.05,
+      "warning_delay_s": 0.0,
+      "min_distance_m": 0.417,
+      "miss_rate": 0.0,
+      "gt_visible_frames": 124,
+      "false_negatives": 16,
+      "false_positive_count": 11,
+      "precision": 0.9076,
+      "fp_per_frame": 0.0887,
+      "other_tl_detections": 109,
+      "critical_zone_frames": 47,
+      "critical_zone_misses": 0,
+      "target_tl_id": 12,
+      "lane_tl_id": 12,
+      "start_distance_m": 38.37,
+      "weather_params": "{\"cloudiness\": 0.0, \"precipitation\": 0.0, \"precipitation_deposits\": 0.0, \"wind_intensity\": 0.0, \"sun_azimuth_angle\": 0.0, \"sun_altitude_angle\": 70.0, \"fog_density\": 0.0, \"fog_distance\": 0.0, \"fog_falloff\": 0.0, \"wetness\": 0.0, \"scattering_intensity\": 1.0, \"mie_scattering_scale\": 0.03, \"rayleigh_scattering_scale\": 0.0331, \"dust_storm\": 0.0}",
+      "weather_ok": true,
+      "status": "ok"
+    }
+  }
+}
