@@ -1,0 +1,11 @@
+Condizione,Recall zona critica,Recall totale,Prima detection (m),Precision,FP/frame,TTC al warning (s),Ritardo warning (s),Si ferma in tempo,Esito,Motivo
+clear,96%,24%,28.9,94%,0.016,2.24,0.25,si,OK,
+rain,99%,26%,30.3,93%,0.019,2.39,0.10,si,OK,
+fog,98%,25%,28.9,92%,0.022,2.29,0.20,si,OK,
+night,100%,26%,29.5,92%,0.022,2.34,0.15,si,OK,
+backlight,99%,26%,30.6,91%,0.025,2.41,0.08,si,OK,
+rain severe,100%,28%,34.7,94%,0.016,2.49,0.00,si,OK,
+fog severe,61%,16%,19.5,90%,0.016,1.44,1.05,NO,COLLASSO,warning troppo tardi per fermarsi
+night severe,46%,12%,15.6,91%,0.011,1.09,1.40,NO,COLLASSO,warning troppo tardi per fermarsi
+blur mild,62%,16%,20.6,58%,0.115,1.44,1.05,NO,COLLASSO,warning troppo tardi per fermarsi
+blur severe,2%,1%,4.6,33%,0.011,nessuno,-,NO,COLLASSO,nessun warning
