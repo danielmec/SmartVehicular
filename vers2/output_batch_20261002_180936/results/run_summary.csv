@@ -1,8 +1,0 @@
-batch_id,run_label,weather,corruption,severity,total_frames,detection_frames,detection_rate,first_detection_distance_m,first_detection_elapsed_s,warning_delay_s,min_distance_m,miss_rate,false_positive_count,roadside_person_count,critical_zone_frames,critical_zone_misses,fcw_warnings_issued,fcw_true_positives,fcw_missed_warnings,fcw_false_alarms,fcw_precision,fcw_recall,fcw_first_warning_distance_m,fcw_warning_delay_s,fcw_warning_zone_frames,fcw_danger_zone_frames,status
-20261002_180951,clear_none0,clear,none,0,322,46,0.1429,16.03,29.529,0.0,2.788,0.5158,0,0,95,49,46,46,14,0,1.0,0.7667,16.03,0.0,60,26,ok
-20261002_180951,rain_none0,rain,none,0,322,37,0.1149,19.773,26.742,0.0,2.788,0.6105,0,1,95,58,37,37,23,0,1.0,0.6167,19.77,0.0,60,26,ok
-20261002_180951,fog_none0,fog,none,0,322,51,0.1584,17.472,18.985,0.0,2.788,0.4632,0,0,95,44,51,51,9,0,1.0,0.85,17.47,0.0,60,26,ok
-20261002_180951,night_none0,night,none,0,322,62,0.1925,53.159,20.191,0.0,2.788,0.3684,0,4,95,35,57,57,3,0,1.0,0.95,19.2,0.0,60,26,ok
-20261002_180951,backlight_none0,backlight,none,0,322,51,0.1584,17.76,19.145,0.0,2.788,0.4632,0,0,95,44,51,51,9,0,1.0,0.85,17.76,0.0,60,26,ok
-20261002_180951,clear_blur1,clear,blur,1,322,39,0.1211,15.742,24.471,0.0,2.788,0.5895,0,3,95,56,39,39,21,0,1.0,0.65,15.74,0.0,60,26,ok
-20261002_180951,clear_blur2,clear,blur,2,322,4,0.0124,9.09,26.222,1.731,2.788,0.9579,0,1,95,91,4,4,56,0,1.0,0.0667,9.09,0.25,60,26,ok
