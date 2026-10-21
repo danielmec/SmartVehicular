@@ -64,7 +64,7 @@ SCENARIOS = {
            'samples': os.path.join('scenario2_traffic_light', 'detection_samples'),
            'prefix': 'rlw_', 'side_sample': '03_approach'},
 }
-SEVERITY_NAMES = {1: 'mild', 2: 'severe'}
+SEVERITY_NAMES = {1: 'σ1', 2: 'σ2', 3: 'mild', 4: 'severe'}   # blur: sigma 1, 2, 3, 7 px a 1280 px
 VERDICT_COLORS = {'OK': '#2e7d32', 'DEGRADATO': '#f9a825', 'COLLASSO': '#c62828'}
 
 
@@ -152,7 +152,7 @@ RESULTS = {}
 for key, cfg in SCENARIOS.items():
     res = load_scenario(key)
     if res is None:
-        print(f"{cfg['name']}: nessun batch valido trovato (eseguire le Sezioni 11/12)")
+        print(f"{cfg['name']}: nessun batch valido trovato (eseguire le Sezioni 10/11)")
         continue
     agg = aggregate(res['summary'], cfg['prefix'])
     ref = agg.loc['clear'] if 'clear' in agg.index else None
@@ -274,11 +274,11 @@ if RESULTS:
         max_d = float(np.ceil(vis['distance_m'].max() / 5.0) * 5.0)
         crit_m = vis.loc[vis['in_critical_zone'] == 1, 'distance_m'].max()  # limite della zona critica
         vis['bin'] = pd.cut(vis['distance_m'], bins=np.arange(0, max_d + 5, 5), right=False)
-        cmap = plt.get_cmap('tab10')
+        cmap = plt.get_cmap('tab20')
         for i, cond in enumerate(res['agg'].index):
             curve = vis[vis['condition'] == cond].groupby('bin', observed=True)['tp'].mean()
             ax.plot([b.mid for b in curve.index], curve.values, marker='o', ms=4, lw=2,
-                    color=cmap(i % 10), label=cond)
+                    color=cmap(i % 20), label=cond)
         if not pd.isna(crit_m):
             ax.axvspan(0, crit_m, color='#c62828', alpha=0.07, label='zona critica')
         ax.set_xlim(max_d, 0)
@@ -287,7 +287,7 @@ if RESULTS:
         ax.set_ylabel('Recall')
         ax.set_title(f"{SCENARIOS[key]['name']}\nrecall per distanza", fontweight='bold')
         ax.grid(alpha=0.3)
-        ax.legend(fontsize=9, loc='upper left')
+        ax.legend(fontsize=8, loc='upper left', ncol=2)
     plt.tight_layout()
     for plots_dir in {r['plots_dir'] for r in RESULTS.values()}:
         plt.savefig(os.path.join(plots_dir, 'recall_vs_distance.png'), dpi=150, bbox_inches='tight')
@@ -298,8 +298,9 @@ if RESULTS:
 # -- Cella 42 del notebook ------------------------------------------------------
 # ============================================================================
 
-# BLUR: clear -> mild -> severe
-BLUR_STEPS = ['clear', 'blur mild', 'blur severe']
+# BLUR: clear -> sigma 1 -> sigma 2 -> mild (sigma 3) -> severe (sigma 7)
+BLUR_STEPS = ['clear', 'blur σ1', 'blur σ2', 'blur mild', 'blur severe']
+BLUR_TICKS = ['nessuna (clear)', 'σ = 1 px', 'σ = 2 px', 'mild (σ = 3 px)', 'severe (σ = 7 px)']
 
 blur_results = {k: r for k, r in RESULTS.items() if all(s in r['agg'].index for s in BLUR_STEPS)}
 if blur_results:
@@ -324,7 +325,7 @@ if blur_results:
     ax_ttc.set_ylim(0, ttc_warn * 1.25)
     for ax, title in ((ax_rec, 'Recall in zona critica'), (ax_ttc, 'TTC al primo warning')):
         ax.set_xticks(x)
-        ax.set_xticklabels(['nessuna (clear)', 'blur mild', 'blur severe'])
+        ax.set_xticklabels(BLUR_TICKS)
         ax.set_title(f'Blur: {title}', fontweight='bold')
         ax.grid(alpha=0.3)
         ax.legend(fontsize=9)
@@ -333,7 +334,7 @@ if blur_results:
         plt.savefig(os.path.join(plots_dir, 'blur_degradation.png'), dpi=150, bbox_inches='tight')
     plt.close()
 else:
-    print("Condizioni clear / blur mild / blur severe non presenti nei risultati")
+    print(f"Condizioni {' / '.join(BLUR_STEPS)} non presenti nei risultati")
 
 
 # ============================================================================
@@ -365,6 +366,17 @@ def sample_with_gt(res, run_label, prefix):
     return None
 
 
+def panel_axes(n, col_w, row_h, max_cols=6):
+    """Figura con n pannelli (immagine sopra, ingrandimento sotto), al massimo max_cols per riga."""
+    ncols = min(n, max_cols)
+    blocks = -(-n // ncols)
+    fig, axes = plt.subplots(2 * blocks, ncols, figsize=(col_w * ncols, row_h * blocks), squeeze=False,
+                             gridspec_kw={'height_ratios': [1, 1.3] * blocks})
+    for ax in axes.flat:
+        ax.axis('off')
+    return fig, [(axes[2 * (i // ncols), i % ncols], axes[2 * (i // ncols) + 1, i % ncols]) for i in range(n)]
+
+
 for key, res in RESULTS.items():
     res['key'] = key
     latest = res['summary'][res['summary']['batch_dir'] == res['latest']]
@@ -378,16 +390,13 @@ for key, res in RESULTS.items():
     if not panels:
         print(f"{SCENARIOS[key]['name']}: nessun sample trovato in {res['latest']}")
         continue
-    fig, axes = plt.subplots(2, len(panels), figsize=(3.6 * len(panels), 5.2), squeeze=False,
-                             gridspec_kw={'height_ratios': [1, 1.3]})
-    for c, (cond, esito, image, zoom, dist) in enumerate(panels):
-        axes[0, c].imshow(image)
-        axes[0, c].set_title(f"{cond}\n{esito} - {dist:.0f} m", fontsize=10, fontweight='bold',
-                             color=VERDICT_COLORS[esito])
+    fig, pairs = panel_axes(len(panels), 3.6, 5.2)
+    for (ax_img, ax_zoom), (cond, esito, image, zoom, dist) in zip(pairs, panels):
+        ax_img.imshow(image)
+        ax_img.set_title(f"{cond}\n{esito} - {dist:.0f} m", fontsize=10, fontweight='bold',
+                         color=VERDICT_COLORS[esito])
         if zoom is not None:
-            axes[1, c].imshow(zoom)
-        for ax in axes[:, c]:
-            ax.axis('off')
+            ax_zoom.imshow(zoom)
     plt.suptitle(f"{SCENARIOS[key]['name']}: stesso frame in tutte le condizioni", fontsize=14, fontweight='bold')
     plt.tight_layout()
     plt.savefig(os.path.join(res['plots_dir'], f'side_by_side_{key}.png'), dpi=150, bbox_inches='tight')
@@ -441,17 +450,14 @@ for key, res in RESULTS.items():
         if found:
             panels.append((cond, found))
     if panels:
-        fig, axes = plt.subplots(2, len(panels), figsize=(4.2 * len(panels), 5.6), squeeze=False,
-                                 gridspec_kw={'height_ratios': [1, 1.3]})
-        for c, (cond, (image, zoom, dist)) in enumerate(panels):
+        fig, pairs = panel_axes(len(panels), 4.2, 5.6)
+        for (ax_img, ax_zoom), (cond, (image, zoom, dist)) in zip(pairs, panels):
             esito = res['agg'].loc[cond, 'esito']
-            axes[0, c].imshow(image)
-            axes[0, c].set_title(f"{cond} ({esito})\nprimo miss in zona critica: {dist:.1f} m", fontsize=10,
-                                 fontweight='bold', color=VERDICT_COLORS[esito])
+            ax_img.imshow(image)
+            ax_img.set_title(f"{cond} ({esito})\nprimo miss in zona critica: {dist:.1f} m", fontsize=10,
+                             fontweight='bold', color=VERDICT_COLORS[esito])
             if zoom is not None:
-                axes[1, c].imshow(zoom)
-            for ax in axes[:, c]:
-                ax.axis('off')
+                ax_zoom.imshow(zoom)
         plt.suptitle(f"Failure cases - {SCENARIOS[key]['name']}", fontsize=14, fontweight='bold')
         plt.tight_layout()
         plt.savefig(os.path.join(res['plots_dir'], f'failure_cases_{key}.png'), dpi=150, bbox_inches='tight')
@@ -491,3 +497,4 @@ for key, res in RESULTS.items():
         else:
             print(f"  Blur: nessun collasso fino a blur severe (esiti: {', '.join(esiti)})")
     print()
+

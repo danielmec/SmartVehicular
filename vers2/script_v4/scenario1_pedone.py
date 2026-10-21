@@ -9,7 +9,7 @@ I CSV vengono aggiornati dopo ogni condizione; config.json viene scritto solo a 
 completato: l'analisi (analisi_grafici.py) considera validi solo i batch con config.json.
 
 Uso:
-    carlapy scenario1_pedone.py                  # tutte le 10 condizioni
+    carlapy scenario1_pedone.py                  # tutte le 16 condizioni
     carlapy scenario1_pedone.py --tests 1        # solo clear (prova veloce)
     carlapy scenario1_pedone.py --senza-camera   # solo moto e spectator, senza camera ne' YOLO
 
@@ -35,7 +35,7 @@ SUMMARY_FIELDS = [
     'fcw_false_alarms', 'fcw_false_alarm_events', 'fcw_precision', 'fcw_recall',
     'fcw_first_warning_distance_m', 'fcw_ttc_at_warning_s', 'fcw_warning_delay_s',
     'fcw_stopping_distance_m', 'fcw_can_stop', 'fcw_warning_zone_frames',
-    'ped_cross_speed_mps',
+    'ped_cross_speed_mps', 'other_person_detections', 'ego_collisions',
     'weather_ok', 'weather_params',
     'status',
 ]
@@ -47,7 +47,7 @@ FRAME_FIELDS = [
     'gt_visible', 'gt_x1', 'gt_y1', 'gt_x2', 'gt_y2', 'gt_height_px',
     'target_iou', 'tp', 'fn', 'fp', 'fp_confs', 'fp_in_path',
     'speed_mps', 'gap_m', 'ttc_s', 'lateral_offset_m', 'heading_change_deg',
-    'ped_lateral_m',
+    'ped_lateral_m', 'other_persons_visible', 'other_person_detections',
 ]
 
 

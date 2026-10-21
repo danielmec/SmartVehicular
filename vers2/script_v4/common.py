@@ -31,7 +31,7 @@ from ultralytics import YOLO
 import carla
 
 
-# Cartella vers2: modello, output_batch_* e smoke test stanno qui come nel notebook,
+# Cartella vers2: modello e output_batch_* stanno qui come nel notebook,
 # indipendentemente dalla cartella da cui si lanciano gli script
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -174,6 +174,16 @@ WEATHER_OVERRIDES = {
         'fog_distance': 10.0,
         'sun_altitude_angle': 3.0,
     },
+    'fog_60': {                    # nebbia intermedia tra fog e fog_severe (soglia di fallimento)
+        'fog_density': 60.0,
+        'fog_distance': 15.0,
+        'fog_falloff': 1.5,
+    },
+    'fog_75': {
+        'fog_density': 75.0,
+        'fog_distance': 10.0,
+        'fog_falloff': 1.5,
+    },
     'fog_severe': {                # nebbia fittissima: visibilita' di pochi metri
         'fog_density': 90.0,
         'fog_distance': 5.0,
@@ -183,6 +193,20 @@ WEATHER_OVERRIDES = {
         'sun_altitude_angle': -25.0,
         'cloudiness': 80.0,
     },
+    # --- Combinazioni ---
+    'night_highbeam': {            # come night_severe, ma con gli abbaglianti dell'ego (vedi EGO_HIGH_BEAM)
+        'sun_altitude_angle': -25.0,
+        'cloudiness': 80.0,
+    },
+    'rain_night': {                # pioggia di 'rain' di notte, con i lampioni accesi
+        'cloudiness': 90.0,
+        'precipitation': 95.0,
+        'precipitation_deposits': 90.0,
+        'wind_intensity': 100.0,
+        'wetness': 100.0,
+        'fog_density': 8.0,
+        'sun_altitude_angle': -25.0,
+    },
     'backlight': {
         'sun_azimuth_angle': 180.0,  # sostituito da (yaw ego + offset dello spawn) quando lo yaw e' noto
         'sun_altitude_angle': 8.0,   # sole basso: entro il campo visivo verticale della camera
@@ -190,13 +214,16 @@ WEATHER_OVERRIDES = {
 }
 
 # Condizioni in cui i lampioni della citta' restano SPENTI anche di notte
-STREET_LIGHTS_OFF = {'night_severe'}
+STREET_LIGHTS_OFF = {'night_severe', 'night_highbeam'}
+
+# Condizioni in cui l'ego accende gli abbaglianti (nelle altre: luci di posizione + anabbaglianti)
+EGO_HIGH_BEAM = {'night_highbeam'}
 
 # Azimut del sole relativo alla direzione di marcia dell'ego per avere il sole DAVANTI
-# alla camera (controluce), per spawn point. Valori scelti con la calibrazione dello smoke
-# test (Sezione 10): l'offset in cui il sole compare nell'inquadratura. Il valore cambia
-# con lo spawn perche' la convenzione dell'azimut del sole in CARLA non segue lo yaw.
-BACKLIGHT_AZIMUTH_OFFSET = {0: 180.0, 103: 0.0}   # {spawn point: offset in gradi}
+# alla camera (controluce), per spawn point: l'offset in cui il sole compare
+# nell'inquadratura. Entrambi gli spawn hanno yaw ~0: con 180 il sole e' davanti
+# (con 0 il sole era alle spalle dell'ego nello Scenario 2).
+BACKLIGHT_AZIMUTH_OFFSET = {0: 180.0, 103: 180.0}   # {spawn point: offset in gradi}
 
 
 def backlight_offset(spawn_index):
@@ -246,6 +273,19 @@ def set_street_lights(world, weather_type, params):
         return 'error'
 
 
+def set_ego_lights(vehicle, weather_type):
+    """
+    Luci dell'ego: posizione + anabbaglianti, piu' gli abbaglianti nelle condizioni di EGO_HIGH_BEAM.
+    Restituisce 'high_beam' o 'low_beam' (salvato nei parametri del run).
+    """
+    state = carla.VehicleLightState.Position | carla.VehicleLightState.LowBeam
+    high = weather_type in EGO_HIGH_BEAM
+    if high:
+        state |= carla.VehicleLightState.HighBeam
+    vehicle.set_light_state(carla.VehicleLightState(state))
+    return 'high_beam' if high else 'low_beam'
+
+
 def build_weather(weather_type, ego_yaw=None, spawn_index=None):
     """
     Costruisce parametri meteo CARLA per una condizione specifica.
@@ -275,7 +315,7 @@ def check_applied_weather(world, expected, label='', tol=1e-3):
     """
     applied = weather_to_dict(world.get_weather())
     diff = {}
-    for k in WEATHER_FIELDS:   # le chiavi extra (es. 'street_lights') non sono parametri meteo
+    for k in WEATHER_FIELDS:   # le chiavi extra ('street_lights', 'ego_lights') non sono parametri meteo
         delta = abs(expected[k] - applied[k])
         if k == 'sun_azimuth_angle':
             delta = min(delta % 360.0, 360.0 - delta % 360.0)
@@ -314,6 +354,10 @@ class MovingScenario:
     ped_distance metri dallo spawn (dove stava il pedone fermo), e cammina verso destra.
     Parte PED_START_DELAY_S dopo l'ego, a una velocita' (calcolata in run_condition) che lo porta
     davanti all'angolo anteriore destro dell'ego quando il paraurti arriva sulla sua linea: incidente.
+
+    Contorno: i veicoli di OPPOSITE_TRAFFIC incrociano l'ego nella carreggiata opposta durante
+    l'avvicinamento, le persone di SIDEWALK_WALKERS camminano sul marciapiede a destra. Le loro
+    detection 'person' non sono errori (other_road_users, contate in other_person_detections).
     """
     SPAWN_INDEX = 0
 
@@ -357,48 +401,220 @@ class MovingScenario:
         pedestrian = self.world.spawn_actor(pedestrian_bp, ped_transform)
         self.pedestrians.append(pedestrian)
         
-        # --- BACKGROUND TRAFFIC (1 veicolo, nell'altra carreggiata) ---
-        self.bg_vehicles = []
-        bg_vehicle_bp = self.blueprint_lib.find('vehicle.audi.etron')
-        
-        # Prendi il waypoint del pedone
-        ped_wp = self.world.get_map().get_waypoint(ped_location)
-        
-        # Ottiene il vettore laterale destro (indica la "destra" rispetto alla direzione del pedone/ego)
-        right_vector = ped_wp.transform.get_right_vector()
-        
-        # trovare una corsia di marcia valida spostandoci lateralmente.
-        # Prova prima a sinistra (-6 e -10 metri) e poi a destra (+6 e +10 metri) 
-        # per scavalcare il marciapiede centrale a prescindere dalla conformazione.
-        bg_wp = None
-        for offset in [-6.0, -10.0, 6.0, 10.0]:
-            target_loc = ped_location + right_vector * offset
-            # Cerca il waypoint di tipo 'Driving' più vicino a quel punto spaziale
-            test_wp = self.world.get_map().get_waypoint(target_loc, project_to_road=True, lane_type=carla.LaneType.Driving)
-            
-            # Verifa di aver trovato una corsia che non sia la stessa in cui si trova il pedone
-            if test_wp and (test_wp.road_id != ped_wp.road_id or test_wp.lane_id != ped_wp.lane_id):
-                bg_wp = test_wp
-                break
-
-        if bg_wp:
-            opp_t = bg_wp.transform
-            opp_t.location.z += 0.5  #per evitare che spawni dentro l'asfalto
-            
-            try:
-                bg_vehicle = self.world.spawn_actor(bg_vehicle_bp, opp_t)
-                self.bg_vehicles.append(bg_vehicle)
-                self.vehicles.append(bg_vehicle)
-
-                audi_lights = carla.VehicleLightState.Position | carla.VehicleLightState.LowBeam
-                bg_vehicle.set_light_state(carla.VehicleLightState(audi_lights))
-
-                print(f"  BG Vehicle (Audi A2) spawnato con successo! Road ID: {bg_wp.road_id}, Lane ID: {bg_wp.lane_id}")
-            except Exception as e:
-                print(f"  BG Vehicle spawn fallito per collisione/geometria: {e}")
-        else:
-            print("  AVVISO: Impossibile trovare una carreggiata/corsia alternativa nelle vicinanze.")
+        # Traffico nella carreggiata opposta e persone sul marciapiede a destra (stessi in ogni run)
+        self.ego_spawn = ego_spawn
+        self.opp_traffic = []
+        self.lead_traffic = []
+        self._plan_opposite_traffic(ego_spawn, ped_location)
+        self._spawn_lead_traffic(ego_spawn)
+        self._spawn_sidewalk_walkers(ego_spawn)
         return self.ego_vehicle, self.pedestrians
+
+    def _rel(self, ego_spawn, location):
+        """(distanza in avanti, spostamento a destra) di location rispetto allo spawn dell'ego."""
+        fwd, right = ego_spawn.get_forward_vector(), ego_spawn.get_right_vector()
+        d = location - ego_spawn.location
+        return d.x * fwd.x + d.y * fwd.y, d.x * right.x + d.y * right.y
+
+    def _opposite_lane(self, ego_spawn, ped_location):
+        """Waypoint della corsia opposta (senso di marcia contrario all'ego) sulla linea del pedone."""
+        carla_map = self.world.get_map()
+        ped_wp = carla_map.get_waypoint(ped_location)
+        right = ped_wp.transform.get_right_vector()
+        for offset in (-6.0, -10.0, 6.0, 10.0):
+            wp = carla_map.get_waypoint(ped_location + right * offset, project_to_road=True,
+                                        lane_type=carla.LaneType.Driving)
+            if wp is None or (wp.road_id == ped_wp.road_id and wp.lane_id == ped_wp.lane_id):
+                continue
+            yaw_diff = abs((wp.transform.rotation.yaw - ego_spawn.rotation.yaw + 180.0) % 360.0 - 180.0)
+            if yaw_diff > 150.0:
+                return wp
+        return None
+
+    def _plan_opposite_traffic(self, ego_spawn, ped_location):
+        """
+        Veicoli di OPPOSITE_TRAFFIC nella corsia opposta, fermi alla distanza indicata davanti allo
+        spawn; partono al tick 1 insieme all'ego (update_traffic). Se un incrocio accorcia la corsia,
+        si parte dal punto piu' lontano raggiungibile, in fila ogni 12 m.
+        """
+        if not OPPOSITE_TRAFFIC:
+            return
+        lane_wp = self._opposite_lane(ego_spawn, ped_location)
+        if lane_wp is None:
+            print("  AVVISO: corsia opposta non trovata, niente traffico")
+            return
+
+        # Punto piu' lontano raggiungibile lungo la corsia opposta senza entrare in un incrocio
+        # (la corsia va verso l'ego: previous() si allontana)
+        far_wp = lane_wp
+        for _ in range(300):
+            prev = far_wp.previous(1.0)
+            if not prev or prev[0].is_junction:
+                break
+            far_wp = prev[0]
+        limit = self._rel(ego_spawn, far_wp.transform.location)[0]
+        starts = []
+        for name, kmh, ahead_m in reversed(OPPOSITE_TRAFFIC):
+            starts.insert(0, min(ahead_m, limit))
+            limit = starts[0] - 12.0
+
+        for (name, kmh, ahead_m), x_start in zip(OPPOSITE_TRAFFIC, starts):
+            # A passi di 1 m lungo la corsia fino a meno di 1 m da x_start; si ferma se un passo
+            # non avvicina (curva, fine corsia)
+            wp = lane_wp
+            x = self._rel(ego_spawn, wp.transform.location)[0]
+            for _ in range(400):
+                diff = x_start - x
+                if abs(diff) < 1.0:
+                    break
+                nxt = wp.previous(1.0) if diff > 0 else wp.next(1.0)
+                if not nxt:
+                    break
+                new_x = self._rel(ego_spawn, nxt[0].transform.location)[0]
+                if abs(x_start - new_x) >= abs(diff):
+                    break
+                wp, x = nxt[0], new_x
+            tf = carla.Transform(wp.transform.location + carla.Location(z=0.5), wp.transform.rotation)
+            blueprints = self.blueprint_lib.filter(name) or self.blueprint_lib.filter('vehicle.audi.etron')
+            vehicle = self.world.try_spawn_actor(blueprints[0], tf)
+            if vehicle is None:
+                print(f"  AVVISO: spawn fallito per {name} nella corsia opposta")
+                continue
+            vehicle.set_light_state(carla.VehicleLightState(
+                carla.VehicleLightState.Position | carla.VehicleLightState.LowBeam))
+            vehicle.apply_control(carla.VehicleControl(brake=1.0))
+            self.vehicles.append(vehicle)
+            self.opp_traffic.append({'actor': vehicle, 'speed': kmh / 3.6, 'current': None})
+            print(f"  Traffico opposto: {vehicle.type_id} parte da {x:.0f} m davanti all'ego, fino a {kmh:.0f} km/h")
+
+    def _spawn_lead_traffic(self, ego_spawn):
+        """
+        Veicoli di LEAD_TRAFFIC nella corsia a destra dell'ego (stesso senso di marcia), alla distanza
+        indicata davanti allo spawn. Per ognuno si cerca l'inizio dell'incrocio in fondo alla corsia:
+        update_traffic lo fa fermare LEAD_STOP_MARGIN_M prima.
+        """
+        carla_map = self.world.get_map()
+        fwd = ego_spawn.get_forward_vector()
+        for name, kmh, ahead_m in LEAD_TRAFFIC:
+            wp = carla_map.get_waypoint(ego_spawn.location + fwd * ahead_m).get_right_lane()
+            if wp is None or wp.lane_type != carla.LaneType.Driving or \
+                    abs((wp.transform.rotation.yaw - ego_spawn.rotation.yaw + 180.0) % 360.0 - 180.0) > 30.0:
+                print(f"  AVVISO: corsia di destra (stesso senso dell'ego) non trovata a {ahead_m:.0f} m")
+                continue
+            # Inizio dell'incrocio in fondo alla corsia
+            end_wp = wp
+            for _ in range(300):
+                nxt = end_wp.next(1.0)
+                if not nxt or nxt[0].is_junction:
+                    break
+                end_wp = nxt[0]
+            stop_x = self._rel(ego_spawn, end_wp.transform.location)[0] - LEAD_STOP_MARGIN_M
+            tf = carla.Transform(wp.transform.location + carla.Location(z=0.5), wp.transform.rotation)
+            blueprints = self.blueprint_lib.filter(name) or self.blueprint_lib.filter('vehicle.audi.etron')
+            vehicle = self.world.try_spawn_actor(blueprints[0], tf)
+            if vehicle is None:
+                print(f"  AVVISO: spawn fallito per {name} nella corsia di destra")
+                continue
+            vehicle.set_light_state(carla.VehicleLightState(
+                carla.VehicleLightState.Position | carla.VehicleLightState.LowBeam))
+            vehicle.apply_control(carla.VehicleControl(brake=1.0))
+            self.vehicles.append(vehicle)
+            self.lead_traffic.append({'actor': vehicle, 'speed': kmh / 3.6, 'current': None,
+                                      'stop_x': stop_x, 'stopped': False})
+            room = stop_x + LEAD_STOP_MARGIN_M - (ahead_m + vehicle.bounding_box.extent.x)
+            print(f"  Corsia di destra: {vehicle.type_id} parte da {ahead_m:.0f} m a {kmh:.0f} km/h; "
+                  f"incrocio a {room:.0f} m dal suo muso" + (", si ferma prima" if LEAD_STOP_AT_JUNCTION else ""))
+
+    def _spawn_sidewalk_walkers(self, ego_spawn):
+        """
+        Persone di SIDEWALK_WALKERS sul marciapiede alla destra dell'ego: dalla corsia dell'ego si va
+        verso destra (get_right_lane) oltre la corsia libera, fino alla prima corsia di tipo Sidewalk.
+        Due file a +-SIDEWALK_LANE_OFFSET_M dal centro del marciapiede, una per verso di marcia.
+        """
+        carla_map = self.world.get_map()
+        fwd = ego_spawn.get_forward_vector()
+        walker_bps = sorted(self.blueprint_lib.filter('walker.pedestrian.*'), key=lambda b: b.id)
+        walker_bps = [b for b in walker_bps if b.id != 'walker.pedestrian.0001'] or walker_bps
+        self.sidewalk_walkers = []
+        for k, (ahead_m, direction, speed) in enumerate(SIDEWALK_WALKERS):
+            wp = carla_map.get_waypoint(ego_spawn.location + fwd * ahead_m)
+            crossed = []
+            for _ in range(6):
+                wp = wp.get_right_lane()
+                if wp is None or wp.lane_type == carla.LaneType.Sidewalk:
+                    break
+                crossed.append(str(wp.lane_type))
+            if wp is None or wp.lane_type != carla.LaneType.Sidewalk:
+                print(f"  AVVISO: marciapiede a destra non trovato a {ahead_m:.0f} m (corsie: {crossed})")
+                continue
+            # due file: verso la strada (-) chi va come l'ego, verso l'interno (+) chi va verso l'ego
+            right = ego_spawn.get_right_vector()
+            side = -direction * SIDEWALK_LANE_OFFSET_M
+            loc = wp.transform.location + carla.Location(x=right.x * side, y=right.y * side, z=1.0)
+            yaw = ego_spawn.rotation.yaw + (0.0 if direction > 0 else 180.0)
+            walker = self.world.try_spawn_actor(walker_bps[(3 * k + 1) % len(walker_bps)],
+                                                carla.Transform(loc, carla.Rotation(yaw=yaw)))
+            if walker is None:
+                print(f"  AVVISO: spawn fallito per la persona sul marciapiede a {ahead_m:.0f} m")
+                continue
+            self.pedestrians.append(walker)
+            walk_dir = carla.Vector3D(fwd.x * direction, fwd.y * direction, 0.0)
+            self.sidewalk_walkers.append({'actor': walker, 'dir': walk_dir, 'speed': speed,
+                                          'yaw': yaw, 'base': None})
+            if k == 0:
+                print(f"  Marciapiede: dopo le corsie {crossed}, a {self._rel(ego_spawn, loc)[1]:.1f} m a destra")
+        print(f"  Marciapiede: {len(self.sidewalk_walkers)} persone")
+
+    def other_road_users(self):
+        """
+        Attori che YOLO puo' rilevare come 'person' senza che sia un errore: le persone sul
+        marciapiede e i veicoli a due ruote (il conducente fa parte del box del veicolo).
+        """
+        others = [w['actor'] for w in getattr(self, 'sidewalk_walkers', [])]
+        others += [c['actor'] for c in self.opp_traffic
+                   if c['actor'].attributes.get('number_of_wheels') == '2']
+        return others
+
+    def update_traffic(self, n):
+        """
+        Da chiamare prima del tick n (n = 1, 2, ...): i veicoli della corsia opposta partono al tick 1
+        e accelerano con la rampa dell'ego (EGO_ACCEL_MPS2) fino alla propria velocita'. La chiamata
+        al server parte solo se la velocita' cambia.
+        """
+        for car in self.opp_traffic:
+            speed = min(car['speed'], EGO_ACCEL_MPS2 * n * FIXED_DELTA_S)
+            if speed == car['current']:
+                continue
+            if car['current'] is None:
+                car['actor'].apply_control(carla.VehicleControl(brake=0.0))
+            car['actor'].enable_constant_velocity(carla.Vector3D(speed, 0.0, 0.0))
+            car['current'] = speed
+        # Corsia di destra: rampa da fermo e velocita' costante; con LEAD_STOP_AT_JUNCTION frenata dolce
+        # fino a fermarsi prima dell'incrocio (v = sqrt(2 * decelerazione * spazio rimasto))
+        for car in self.lead_traffic:
+            if car['stopped']:
+                continue
+            front = self._rel(self.ego_spawn, car['actor'].get_location())[0] + car['actor'].bounding_box.extent.x
+            speed = min(car['speed'], EGO_ACCEL_MPS2 * n * FIXED_DELTA_S)
+            if LEAD_STOP_AT_JUNCTION:
+                room = max(0.0, car['stop_x'] - front)
+                speed = min(speed, (2.0 * LEAD_DECEL_MPS2 * room) ** 0.5)
+            if speed < 0.2 and n > 1:
+                car['actor'].disable_constant_velocity()
+                car['actor'].apply_control(carla.VehicleControl(brake=1.0))
+                car['stopped'] = True
+                continue
+            if car['current'] is None:
+                car['actor'].apply_control(carla.VehicleControl(brake=0.0))
+            if abs(speed - (car['current'] or 0.0)) > 1e-3:
+                car['actor'].enable_constant_velocity(carla.Vector3D(speed, 0.0, 0.0))
+                car['current'] = speed
+        # Persone sul marciapiede: prima del tick n stanno nel punto raggiunto dopo n-1 tick lungo la
+        # loro retta; durante il tick il WalkerControl le fa avanzare (e anima la camminata)
+        for w in getattr(self, 'sidewalk_walkers', []):
+            s = w['speed'] * (n - 1) * FIXED_DELTA_S
+            loc = carla.Location(w['base'].x + w['dir'].x * s, w['base'].y + w['dir'].y * s, w['base'].z)
+            w['actor'].set_transform(carla.Transform(loc, carla.Rotation(yaw=w['yaw'])))
 
     def _crossing_start(self, line_point, right, max_offset_m=20.0, step_m=0.25, margin_m=0.5):
         """
@@ -438,24 +654,29 @@ class MovingScenario:
                                              spawn_index=self.SPAWN_INDEX)
         self.world.set_weather(carla.WeatherParameters(**self.weather_params))
         self.weather_params['street_lights'] = set_street_lights(self.world, weather_type, self.weather_params)
+        self.weather_params['ego_lights'] = set_ego_lights(self.ego_vehicle, weather_type)
         return self.weather_params
 
     def start_motion(self):
-        """Rilascia i freni dopo l'assestamento: da qui la velocita' e' imposta con set_speed()."""
+        """
+        Rilascia i freni dell'ego dopo l'assestamento (da qui la sua velocita' e' imposta con
+        set_speed()) e fa partire le persone sul marciapiede. Il traffico opposto parte con update_traffic().
+        """
         self._speed = None
-        for vehicle in self.vehicles:
-            vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=0.0))
+        self.ego_vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=0.0, brake=0.0))
+        for w in getattr(self, 'sidewalk_walkers', []):
+            w['base'] = w['actor'].get_location()   # appoggiato a terra dopo l'assestamento
+            w['actor'].apply_control(carla.WalkerControl(direction=w['dir'], speed=w['speed']))
 
     def set_speed(self, speed_mps):
         """
-        Velocita' imposta a ego e traffico (enable_constant_velocity, coordinate locali).
-        Chiamata a ogni frame con la rampa di ramp_speed(): la chiamata al server parte
-        solo se il valore cambia, quindi a velocita' di crociera non costa nulla.
+        Velocita' imposta all'ego (enable_constant_velocity, coordinate locali); il traffico
+        opposto ha velocita' proprie (update_traffic). Chiamata a ogni frame con la rampa di
+        ramp_speed(): la chiamata al server parte solo se il valore cambia.
         """
         if speed_mps == self._speed:
             return
-        for vehicle in self.vehicles:
-            vehicle.enable_constant_velocity(carla.Vector3D(speed_mps, 0.0, 0.0))
+        self.ego_vehicle.enable_constant_velocity(carla.Vector3D(speed_mps, 0.0, 0.0))
         self._speed = speed_mps
 
     def cleanup(self):
@@ -500,11 +721,12 @@ def _resolution_scale(rgb_frame):
 def apply_blur(rgb_frame, severity):
     """
     Applica Gaussian blur al frame.
-    severity: 1=mild (r=1.5), 2=moderate (r=3.5), 3=severe (r=6.0)
+    severity (sigma sulla larghezza di riferimento di 640 px; a 1280 px e' il doppio):
+        1 = 0.5 (1 px), 2 = 1.0 (2 px), 3 = 1.5 (3 px, mild), 4 = 3.5 (7 px, severe)
     """
     if severity <= 0:
         return rgb_frame
-    radius_map = {1: 1.5, 2: 3.5, 3: 6.0}
+    radius_map = {1: 0.5, 2: 1.0, 3: 1.5, 4: 3.5}
     radius = radius_map.get(severity, 3.5) * _resolution_scale(rgb_frame)
     # OpenCV: ~5-9x piu' veloce di PIL a 1280x720, risultato equivalente (sigma = radius)
     return cv2.GaussianBlur(rgb_frame, (0, 0), sigmaX=radius, sigmaY=radius)
@@ -936,6 +1158,37 @@ EGO_ACCEL_MPS2 = 2.5          # rampa di partenza da fermo: ~4.4 s e ~25 m per a
 PED_CROSSING = True           # Scenario 1: il pedone attraversa (dallo spartitraffico a sinistra verso destra)
                               # e arriva davanti all'angolo destro dell'ego quando il paraurti raggiunge la sua linea (incidente)
 PED_START_DELAY_S = 5.0       # il pedone parte 5 s dopo l'ego: attraversa lentamente durante l'avvicinamento
+# Scenario 1: traffico nella carreggiata opposta. Tutti partono insieme all'ego e accelerano con la
+# stessa rampa (EGO_ACCEL_MPS2) fino alla propria velocita'. Chi parte piu' lontano va piu' piano,
+# quindi nella stessa corsia nessuno raggiunge il veicolo davanti.
+# (blueprint, velocita' km/h, distanza di partenza davanti allo spawn dell'ego in m)
+OPPOSITE_TRAFFIC = [
+    ('vehicle.audi.etron', 40.0, 90.0),
+    ('vehicle.yamaha.yzf', 35.0, 110.0),
+    ('vehicle.mini.cooper_s_2021', 30.0, 130.0),
+]
+# Scenario 1: veicoli nella corsia di destra (stesso senso dell'ego), oltre la linea del pedone: vanno piano
+# verso il semaforo in fondo per tutto il run. Con LEAD_STOP_AT_JUNCTION = True si fermano invece
+# LEAD_STOP_MARGIN_M prima dell'incrocio (decelerazione LEAD_DECEL_MPS2): serve spazio sufficiente.
+# (blueprint, velocita' km/h, distanza di partenza davanti allo spawn dell'ego in m)
+LEAD_TRAFFIC = [
+    ('vehicle.nissan.patrol_2021', 20.0, 92.0),
+]
+LEAD_STOP_AT_JUNCTION = False
+LEAD_STOP_MARGIN_M = 3.0
+LEAD_DECEL_MPS2 = 3.0
+# Scenario 1: persone sul marciapiede a destra dell'ego (non sono il target: detection contate a parte).
+# Chi va come l'ego cammina SIDEWALK_LANE_OFFSET_M verso la strada, chi va verso l'ego verso l'interno:
+# non si incontrano mai. Il percorso e' imposto a ogni tick (update_traffic): nessuno puo' essere spinto in strada.
+# (distanza davanti allo spawn in m, verso: +1 = come l'ego, -1 = verso l'ego, velocita' m/s)
+SIDEWALK_WALKERS = [
+    (20.0, +1, 1.3),
+    (38.0, -1, 1.1),
+    (52.0, +1, 1.4),
+    (66.0, -1, 1.2),
+    (85.0, -1, 1.0),
+]
+SIDEWALK_LANE_OFFSET_M = 0.5
 CROSS_TRAFFIC = True          # Scenario 2: traffico sulla strada trasversale (verde) e incidente dopo il rosso
 CROSS_EARLY_GAP_M = 30.0      # auto da destra gia' nell'incrocio: passa davanti all'ego col paraurti a 30 m dalla linea
 CROSS_FAST_KMH = 60.0         # auto veloci dai lati, fuori dall'inquadratura durante l'avvicinamento
@@ -944,7 +1197,7 @@ CROSS_FAST_PARK_M = 60.0      # ...partendo da 60 m prima dell'incrocio
 CROSS_KINEMATIC_BACK_M = 80.0 # auto veloce da sinistra (strada in curva): segue la corsia da 80 m prima dell'incrocio
 TL_POST_CRASH_S = 2.0         # l'ego non si ferma al rosso: si simula fino a 2 s dopo l'urto
                               # (le metriche si fermano comunque alla linea d'arresto)
-TL_SPAWN_BACK_M = 25.0        # Scenario 2: l'ego parte 25 m prima dello spawn 103 (rampa finita prima del warning)
+TL_SPAWN_BACK_M = 0.0         # Scenario 2: lo spawn 103 ha un incrocio subito dietro, non si puo' arretrare
 
 # Warning (FCW per il pedone, red light warning per il semaforo), Sezione 8.1
 FCW_TTC_WARNING_S = 2.5       # il warning va emesso quando il time-to-collision scende sotto questa soglia
@@ -961,9 +1214,9 @@ IOU_MATCH_THRESHOLD = 0.30  # IoU minimo per associare una detection alla ground
 MIN_GT_HEIGHT_PX = 4        # target piu' bassi di cosi' (in pixel) sono considerati non visibili
 MIN_GT_VISIBLE_FRAC = 0.5   # frazione minima del box di ground truth dentro l'inquadratura
 
-# CONDIZIONI DA TESTARE (10): meteo base, meteo severo, blur mild e severe
+# CONDIZIONI DA TESTARE (16): meteo base, meteo severo e intermedio, combinazioni, blur su 4 livelli
 # Traccia: "clear weather, rain, fog, night, backlight, and blur"
-#          "Add mild and severe visual corruptions"
+#          "Add mild and severe visual corruptions to identify clear failure thresholds"
 
 TESTS = [
     # --- Condizioni meteo (baseline: nessuna corruzione) ---
@@ -973,14 +1226,22 @@ TESTS = [
     {'weather': 'night',     'corruption': 'none', 'severity': 0},
     {'weather': 'backlight', 'corruption': 'none', 'severity': 0},
 
-    # --- Meteo severo: stessa condizione, molto piu' pesante (soglie di fallimento) ---
+    # --- Meteo severo e livelli intermedi di nebbia (soglie di fallimento) ---
     {'weather': 'rain_severe',  'corruption': 'none', 'severity': 0},
+    {'weather': 'fog_60',       'corruption': 'none', 'severity': 0},
+    {'weather': 'fog_75',       'corruption': 'none', 'severity': 0},
     {'weather': 'fog_severe',   'corruption': 'none', 'severity': 0},
     {'weather': 'night_severe', 'corruption': 'none', 'severity': 0},
 
-    # --- Blur: mild e severe (come da traccia) ---
-    {'weather': 'clear', 'corruption': 'blur', 'severity': 1},  # mild
-    {'weather': 'clear', 'corruption': 'blur', 'severity': 2},  # severe
+    # --- Combinazioni ---
+    {'weather': 'night_highbeam', 'corruption': 'none', 'severity': 0},  # notte senza lampioni, abbaglianti
+    {'weather': 'rain_night',     'corruption': 'none', 'severity': 0},  # pioggia di notte, lampioni accesi
+
+    # --- Blur: sigma 1, 2, 3 (mild), 7 px (severe) a 1280 px ---
+    {'weather': 'clear', 'corruption': 'blur', 'severity': 1},
+    {'weather': 'clear', 'corruption': 'blur', 'severity': 2},
+    {'weather': 'clear', 'corruption': 'blur', 'severity': 3},  # mild
+    {'weather': 'clear', 'corruption': 'blur', 'severity': 4},  # severe
 ]
 
 
@@ -1005,6 +1266,8 @@ def save_benchmark_config(path, scenario, summary_rows, client, world):
         'motion': {'ego_speed_kmh': EGO_SPEED_KMH, 'ego_accel_mps2': EGO_ACCEL_MPS2,
                    'pedestrian_distance_m': PEDESTRIAN_DISTANCE_M, 'tl_spawn_back_m': TL_SPAWN_BACK_M,
                    'pedestrian_crossing': PED_CROSSING, 'ped_start_delay_s': PED_START_DELAY_S,
+                   'opposite_traffic': OPPOSITE_TRAFFIC, 'lead_traffic': LEAD_TRAFFIC,
+                   'sidewalk_walkers': SIDEWALK_WALKERS,
                    'cross_traffic': CROSS_TRAFFIC, 'cross_early_gap_m': CROSS_EARLY_GAP_M,
                    'cross_fast_kmh': CROSS_FAST_KMH, 'cross_near_miss_s': CROSS_NEAR_MISS_S,
                    'tl_post_crash_s': TL_POST_CRASH_S,
@@ -1014,6 +1277,7 @@ def save_benchmark_config(path, scenario, summary_rows, client, world):
                     'ego_path_half_width_m': EGO_PATH_HALF_WIDTH_M},
         'weather_base': BASE_WEATHER,
         'street_lights_off': sorted(STREET_LIGHTS_OFF),
+        'ego_high_beam': sorted(EGO_HIGH_BEAM),
         'backlight_azimuth_offset': BACKLIGHT_AZIMUTH_OFFSET,
         'corruption_ref_width': CORRUPTION_REF_WIDTH,
         'tests': TESTS,
@@ -1144,8 +1408,16 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
 
         summary_row['weather_ok'] = check_applied_weather(world, scenario.weather_params, weather)
 
+        # Sensore di collisione: qualunque contatto con l'ego viene registrato (verifica dello scenario)
+        collisions = []
+        collision_sensor = world.spawn_actor(world.get_blueprint_library().find('sensor.other.collision'),
+                                             carla.Transform(), attach_to=scenario.ego_vehicle)
+        scenario.sensors.append(collision_sensor)
+        collision_sensor.listen(lambda e: collisions.append((e.frame, e.other_actor.type_id, e.other_actor.id)))
+
         # Partenza: ego e traffico a velocita' costante
         scenario.start_motion()
+        start_frame = world.get_snapshot().frame
         drift = DriftTracker(scenario.ego_vehicle.get_transform())
         sim_start_time = world.get_snapshot().timestamp.elapsed_seconds
 
@@ -1153,6 +1425,9 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
         K = camera_intrinsics(WIDTH, HEIGHT, FOV)
         pedestrian = scenario.pedestrians[0]
         ped_bbox = pedestrian.bounding_box
+        # Persone sul marciapiede e veicoli a due ruote: una detection 'person' su di loro non e' un errore
+        others = [(a.id, a.bounding_box) for a in scenario.other_road_users()]
+        other_person_count = 0
         ego_half_length = scenario.ego_vehicle.bounding_box.extent.x
         fwd0 = scenario.ego_vehicle.get_transform().get_forward_vector()
 
@@ -1179,6 +1454,7 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
         while frame_count < MAX_FRAMES_PER_RUN:
             # Velocita': rampa dolce da fermo, poi costante (stessa in ogni condizione)
             scenario.set_speed(ramp_speed(frame_count + 1))
+            scenario.update_traffic(frame_count + 1)
             if PED_CROSSING and frame_count == ped_start_frame:
                 scenario.start_crossing(cross_speed)
             # Tick + immagine dello STESSO tick
@@ -1220,6 +1496,12 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
             ped_tf = snapshot.find(pedestrian.id).get_transform()
             gt_box = project_box_2d(ped_bbox.get_world_vertices(ped_tf), cam_tf, K, WIDTH, HEIGHT)
             gt_visible = gt_box is not None
+            gt_others = {}
+            for actor_id, bbox in others:
+                box = project_box_2d(bbox.get_world_vertices(snapshot.find(actor_id).get_transform()),
+                                     cam_tf, K, WIDTH, HEIGHT)
+                if box is not None:
+                    gt_others[('other', actor_id)] = box
 
             # YOLO detection (box da YOLO_MIN_CONF in su: la soglia si applica dopo)
             if processed_frame is not None:
@@ -1235,9 +1517,14 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
                 boxes = np.zeros((0, 6), dtype=np.float32)
             count_classes(boxes, model.names, detection_classes, CONF_THRESHOLD)
 
-            # Associazione detection 'person' <-> pedone
+            # Associazione detection 'person' <-> pedone e altre persone reali
             persons = detections_of_class(boxes, model.names, 'person')
-            matches, unmatched = match_detections(persons, {'ped': gt_box} if gt_visible else {})
+            gt_all = dict(gt_others)
+            if gt_visible:
+                gt_all['ped'] = gt_box
+            matches, unmatched = match_detections(persons, gt_all)
+            frame_other = sum(1 for k, m in matches.items() if k != 'ped' and m[0] >= CONF_THRESHOLD)
+            other_person_count += frame_other
             target_conf, target_iou = matches['ped'][:2] if 'ped' in matches else (0.0, 0.0)
             detected = gt_visible and target_conf >= CONF_THRESHOLD   # TP
             missed = gt_visible and not detected                       # FN
@@ -1310,6 +1597,8 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
                 'gap_m': round(gap, 3),
                 'ttc_s': round(ttc, 3) if ttc is not None else None,
                 'ped_lateral_m': round(ped_lateral, 3),
+                'other_persons_visible': len(gt_others),
+                'other_person_detections': frame_other,
             })
 
             # Cattura campioni visivi ordinati e congelati in RAM a distanze chiave (dall'inizio alla fine)
@@ -1380,7 +1669,15 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
             'fp_per_frame': round(fp_per_frame, 4),
             'critical_zone_frames': critical_zone_frames,
             'critical_zone_misses': critical_zone_misses,
+            'other_person_detections': other_person_count,
         })
+        hits = {}
+        for frame, type_id, actor_id in collisions:
+            if frame >= start_frame and actor_id not in hits:
+                hits[actor_id] = (frame - start_frame, type_id)
+        summary_row['ego_collisions'] = '; '.join(f"{tid}@{n * FIXED_DELTA_S:.2f}s" for n, tid in hits.values())
+        for n, tid in hits.values():
+            print(f"  URTO: l'ego e' stato toccato da {tid} al tick {n} ({n * FIXED_DELTA_S:.2f} s)")
 
         print(f"  Risultato {run_label}: detection_rate (recall)={detection_rate:.2%} "
               f"({detection_count}/{gt_visible_frames} frame con pedone visibile), precision={precision:.2%}")
@@ -1389,6 +1686,7 @@ def run_condition(world, model, batch_id, weather, corruption, severity, samples
         print(f"     Warning delay: {warning_delay}s")
         print(f"     Miss rate (zona critica): {miss_rate:.2%} ({critical_zone_misses}/{critical_zone_frames})")
         print(f"     Falsi positivi 'person': {false_positive_count} ({fp_per_frame:.3f} per frame)")
+        print(f"     Detection di altre persone reali (marciapiede, motociclista; non errori): {other_person_count}")
 
     except Exception as exc:
         summary_row['status'] = 'failed'
@@ -1826,6 +2124,7 @@ class TrafficLightScenario:
                                              spawn_index=self.SPAWN_INDEX)
         self.world.set_weather(carla.WeatherParameters(**self.weather_params))
         self.weather_params['street_lights'] = set_street_lights(self.world, weather_type, self.weather_params)
+        self.weather_params['ego_lights'] = set_ego_lights(self.ego_vehicle, weather_type)
         return self.weather_params
 
     def start_motion(self):
