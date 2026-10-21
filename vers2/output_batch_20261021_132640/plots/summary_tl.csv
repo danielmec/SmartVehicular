@@ -1,0 +1,17 @@
+Condizione,Recall zona critica,Recall totale,Prima detection (m),Precision,Colore corretto,FP/frame,TTC al warning (s),Ritardo warning (s),Si ferma in tempo,Esito,Motivo
+clear,100%,62%,35.8,96%,98%,0.026,2.40,0.00,si,OK,
+rain,100%,93%,38.4,100%,88%,0.004,2.40,0.00,si,OK,
+fog,64%,32%,20.6,100%,100%,0.000,1.92,0.35,si,DEGRADATO,recall zona critica al 64% del clear
+night,79%,44%,31.9,100%,100%,0.000,2.40,0.00,si,DEGRADATO,recall zona critica al 79% del clear
+backlight,100%,64%,35.7,100%,100%,0.000,2.40,0.00,si,OK,
+rain severe,100%,91%,38.4,100%,100%,0.004,2.40,0.00,si,OK,
+fog 60,54%,27%,17.1,100%,100%,0.000,1.48,0.65,NO,COLLASSO,warning troppo tardi per fermarsi
+fog 75,42%,21%,14.5,100%,100%,0.000,1.03,1.02,NO,COLLASSO,warning troppo tardi per fermarsi
+fog severe,30%,15%,8.9,100%,100%,0.000,0.71,1.35,NO,COLLASSO,warning troppo tardi per fermarsi
+night severe,38%,19%,17.1,100%,81%,0.000,0.71,1.35,NO,COLLASSO,warning troppo tardi per fermarsi
+night highbeam,61%,30%,19.1,92%,97%,0.026,1.65,0.50,NO,COLLASSO,warning troppo tardi per fermarsi
+rain night,88%,61%,38.1,99%,99%,0.009,2.40,0.00,si,OK,
+blur σ1,100%,62%,33.3,100%,100%,0.000,2.40,0.00,si,OK,
+blur σ2,86%,42%,24.6,91%,98%,0.044,2.40,0.00,si,OK,
+blur mild,48%,24%,18.2,96%,100%,0.009,1.04,1.00,NO,COLLASSO,warning troppo tardi per fermarsi
+blur severe,0%,0%,-,0%,0%,0.000,nessuno,-,NO,COLLASSO,nessun warning
