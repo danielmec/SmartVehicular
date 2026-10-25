@@ -5,7 +5,7 @@ Legge TUTTI i batch validi (con config.json) in vers2/output_batch_*, come nel n
 le metriche per condizione sono la media tra i batch. Salva tabelle e grafici nella
 cartella plots/ dell'ultimo batch di ogni scenario:
     summary_<ped|tl>.csv/.md, collapse_overview.png, recall_vs_distance.png,
-    blur_degradation.png, side_by_side_<ped|tl>.png, failure_cases_<ped|tl>.png
+    corruption_degradation.png, side_by_side_<ped|tl>.png, failure_cases_<ped|tl>.png
 
 Non serve CARLA ne' il server acceso.
 
@@ -64,16 +64,19 @@ SCENARIOS = {
            'samples': os.path.join('scenario2_traffic_light', 'detection_samples'),
            'prefix': 'rlw_', 'side_sample': '03_approach'},
 }
-SEVERITY_NAMES = {1: 'σ1', 2: 'σ2', 3: 'mild', 4: 'severe'}   # blur: sigma 1, 2, 3, 7 px a 1280 px
+SEVERITY_NAMES = {'blur': {1: 'σ1', 2: 'σ2', 3: 'mild', 4: 'severe'},   # blur: sigma 1, 2, 3, 7 px a 1280 px
+                  'lens_drops': {1: 'mild', 2: 'severe'},
+                  'glare': {1: 'mild', 2: 'severe'}}
 VERDICT_COLORS = {'OK': '#2e7d32', 'DEGRADATO': '#f9a825', 'COLLASSO': '#c62828'}
 
 
 def condition_label(weather, corruption, severity):
-    """Nome leggibile della condizione: 'fog', 'blur mild', 'rain + blur severe', ..."""
+    """Nome leggibile della condizione: 'fog', 'blur mild', 'rain + lens drops severe', ..."""
     weather = weather.replace('_', ' ')   # 'fog_severe' -> 'fog severe'
     if corruption == 'none':
         return weather
-    name = f"{corruption.replace('_', ' ')} {SEVERITY_NAMES.get(int(severity), f's{int(severity)}')}"
+    level = SEVERITY_NAMES.get(corruption, {}).get(int(severity), f's{int(severity)}')
+    name = f"{corruption.replace('_', ' ')} {level}"
     return name if weather == 'clear' else f"{weather} + {name}"
 
 
@@ -298,43 +301,59 @@ if RESULTS:
 # -- Cella 42 del notebook ------------------------------------------------------
 # ============================================================================
 
-# BLUR: clear -> sigma 1 -> sigma 2 -> mild (sigma 3) -> severe (sigma 7)
-BLUR_STEPS = ['clear', 'blur σ1', 'blur σ2', 'blur mild', 'blur severe']
-BLUR_TICKS = ['nessuna (clear)', 'σ = 1 px', 'σ = 2 px', 'mild (σ = 3 px)', 'severe (σ = 7 px)']
+# CORRUZIONI: blur (clear -> sigma 1, 2, 3 mild, 7 severe), gocce sulla lente (rain -> mild -> severe),
+# abbagliamento (backlight -> mild -> severe)
+CORRUPTION_LADDERS = {
+    'Blur': (['clear', 'blur σ1', 'blur σ2', 'blur mild', 'blur severe'],
+             ['nessuna (clear)', 'σ = 1 px', 'σ = 2 px', 'mild (σ = 3 px)', 'severe (σ = 7 px)']),
+    'Gocce sulla lente': (['rain', 'rain + lens drops mild', 'rain + lens drops severe'],
+                          ['nessuna (rain)', 'mild', 'severe']),
+    'Abbagliamento': (['backlight', 'backlight + glare mild', 'backlight + glare severe'],
+                      ['nessuno (backlight)', 'mild', 'severe']),
+}
 
-blur_results = {k: r for k, r in RESULTS.items() if all(s in r['agg'].index for s in BLUR_STEPS)}
-if blur_results:
-    fig, (ax_rec, ax_ttc) = plt.subplots(1, 2, figsize=(16, 5.5))
+ladders = {}
+for title, (steps, ticks) in CORRUPTION_LADDERS.items():
+    found = {k: r for k, r in RESULTS.items() if all(s in r['agg'].index for s in steps)}
+    if found:
+        ladders[title] = (steps, ticks, found)
+if ladders:
+    fig, axes = plt.subplots(len(ladders), 2, figsize=(16, 5.5 * len(ladders)), squeeze=False)
     markers = {'ped': 'o', 'tl': 's'}
-    x = np.arange(len(BLUR_STEPS))
-    for key, res in blur_results.items():
-        rows = res['agg'].loc[BLUR_STEPS]
-        name = SCENARIOS[key]['name']
-        ax_rec.plot(x, rows['critical_recall'], marker=markers[key], ms=9, lw=2.5, label=name)
-        ax_rec.axhline(COLLAPSE_RECALL_FRAC * rows.loc['clear', 'critical_recall'], ls='--', lw=1, alpha=0.6,
-                       color=ax_rec.lines[-1].get_color(), label=f'soglia collasso ({name.split(" - ")[0]})')
-        ax_ttc.plot(x, rows['ttc_at_warning_s'], marker=markers[key], ms=9, lw=2.5, label=name)
-        for xi, (v, esito) in enumerate(zip(rows['ttc_at_warning_s'], rows['esito'])):
-            ax_ttc.annotate(esito, (xi, 0 if pd.isna(v) else v), textcoords='offset points', xytext=(0, 8),
-                            ha='center', fontsize=8, color=VERDICT_COLORS[esito])
-    ttc_warn, ttc_stop = warning_limits(next(iter(blur_results.values()))['config'])
-    ax_ttc.axhline(ttc_stop, color='#c62828', ls='--', lw=1.5, label=f'TTC minimo per fermarsi ({ttc_stop:.2f} s)')
-    ax_rec.set_ylabel('Recall in zona critica')
-    ax_rec.set_ylim(0, 1.05)
-    ax_ttc.set_ylabel('TTC al primo warning (s)')
-    ax_ttc.set_ylim(0, ttc_warn * 1.25)
-    for ax, title in ((ax_rec, 'Recall in zona critica'), (ax_ttc, 'TTC al primo warning')):
-        ax.set_xticks(x)
-        ax.set_xticklabels(BLUR_TICKS)
-        ax.set_title(f'Blur: {title}', fontweight='bold')
-        ax.grid(alpha=0.3)
-        ax.legend(fontsize=9)
+    for (title, (steps, ticks, found)), (ax_rec, ax_ttc) in zip(ladders.items(), axes):
+        x = np.arange(len(steps))
+        for key, res in found.items():
+            rows = res['agg'].loc[steps]
+            name = SCENARIOS[key]['name']
+            short = name.split(' - ')[0]
+            line, = ax_rec.plot(x, rows['critical_recall'], marker=markers[key], ms=9, lw=2.5, label=name)
+            if 'clear' in res['agg'].index:   # soglia di collasso: sempre rispetto al clear
+                ax_rec.axhline(COLLAPSE_RECALL_FRAC * res['agg'].loc['clear', 'critical_recall'], ls='--', lw=1,
+                               alpha=0.6, color=line.get_color(), label=f'soglia collasso ({short})')
+            ax_ttc.plot(x, rows['ttc_at_warning_s'], marker=markers[key], ms=9, lw=2.5, label=name,
+                        color=line.get_color())
+            ttc_warn, ttc_stop = warning_limits(res['config'])   # dipende dalla velocita' dello scenario
+            ax_ttc.axhline(ttc_stop, color=line.get_color(), ls='--', lw=1.2, alpha=0.8,
+                           label=f'TTC minimo per fermarsi ({short}, {ttc_stop:.2f} s)')
+            for xi, (v, esito) in enumerate(zip(rows['ttc_at_warning_s'], rows['esito'])):
+                ax_ttc.annotate(esito, (xi, 0 if pd.isna(v) else v), textcoords='offset points', xytext=(0, 8),
+                                ha='center', fontsize=8, color=VERDICT_COLORS[esito])
+        ax_rec.set_ylabel('Recall in zona critica')
+        ax_rec.set_ylim(0, 1.05)
+        ax_ttc.set_ylabel('TTC al primo warning (s)')
+        ax_ttc.set_ylim(0, ttc_warn * 1.25)
+        for ax, metric in ((ax_rec, 'recall in zona critica'), (ax_ttc, 'TTC al primo warning')):
+            ax.set_xticks(x)
+            ax.set_xticklabels(ticks)
+            ax.set_title(f'{title}: {metric}', fontweight='bold')
+            ax.grid(alpha=0.3)
+            ax.legend(fontsize=9)
     plt.tight_layout()
-    for plots_dir in {r['plots_dir'] for r in blur_results.values()}:
-        plt.savefig(os.path.join(plots_dir, 'blur_degradation.png'), dpi=150, bbox_inches='tight')
+    for plots_dir in {r['plots_dir'] for _, _, found in ladders.values() for r in found.values()}:
+        plt.savefig(os.path.join(plots_dir, 'corruption_degradation.png'), dpi=150, bbox_inches='tight')
     plt.close()
 else:
-    print(f"Condizioni {' / '.join(BLUR_STEPS)} non presenti nei risultati")
+    print("Nessuna serie di corruzioni completa nei risultati")
 
 
 # ============================================================================
@@ -487,14 +506,15 @@ for key, res in RESULTS.items():
               f"= {agg.loc[worst, 'critical_recall']:.0%}"
               + (f" contro {agg.loc['clear', 'critical_recall']:.0%} in clear" if 'clear' in agg.index else ''))
 
-    steps = [s for s in BLUR_STEPS if s in agg.index]
-    if len(steps) == len(BLUR_STEPS):
+    for title, (steps, _) in CORRUPTION_LADDERS.items():
+        if not all(s in agg.index for s in steps):
+            continue
         esiti = agg.loc[steps, 'esito'].tolist()
         first_bad = next((s for s, e in zip(steps, esiti) if e == 'COLLASSO'), None)
         if first_bad:
-            print(f"  Blur: il sistema collassa a partire da '{first_bad}' "
+            print(f"  {title}: il sistema collassa a partire da '{first_bad}' "
                   f"(esiti: {', '.join(f'{s}={e}' for s, e in zip(steps, esiti))})")
         else:
-            print(f"  Blur: nessun collasso fino a blur severe (esiti: {', '.join(esiti)})")
+            print(f"  {title}: nessun collasso fino a '{steps[-1]}' (esiti: {', '.join(esiti)})")
     print()
 

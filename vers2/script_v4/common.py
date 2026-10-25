@@ -431,49 +431,93 @@ class MovingScenario:
                 return wp
         return None
 
+    def _opposite_lanes(self, ego_spawn, ped_location):
+        """
+        Corsie della carreggiata opposta sulla linea del pedone, come dict {'inner', 'outer'} di waypoint:
+        'inner' e' la piu' vicina all'ego (accanto allo spartitraffico), 'outer' la piu' a sinistra.
+        Con una sola corsia le due coincidono.
+        """
+        first = self._opposite_lane(ego_spawn, ped_location)
+        if first is None:
+            return None
+
+        def opposite(wp):
+            if wp is None or wp.lane_type != carla.LaneType.Driving:
+                return False
+            return abs((wp.transform.rotation.yaw - ego_spawn.rotation.yaw + 180.0) % 360.0 - 180.0) > 150.0
+
+        lanes = [first]
+        for step in ('get_left_lane', 'get_right_lane'):
+            wp = first
+            for _ in range(4):
+                wp = getattr(wp, step)()
+                if not opposite(wp) or any(wp.lane_id == l.lane_id and wp.road_id == l.road_id for l in lanes):
+                    break
+                lanes.append(wp)
+        # Spostamento laterale rispetto all'ego: piu' negativo = piu' a sinistra
+        lanes.sort(key=lambda wp: self._rel(ego_spawn, wp.transform.location)[1])
+        if len(lanes) == 1:
+            print("  AVVISO: la carreggiata opposta ha una sola corsia")
+        return {'inner': lanes[-1], 'outer': lanes[0]}
+
     def _plan_opposite_traffic(self, ego_spawn, ped_location):
         """
-        Veicoli di OPPOSITE_TRAFFIC nella corsia opposta, fermi alla distanza indicata davanti allo
-        spawn; partono al tick 1 insieme all'ego (update_traffic). Se un incrocio accorcia la corsia,
-        si parte dal punto piu' lontano raggiungibile, in fila ogni 12 m.
+        Veicoli di OPPOSITE_TRAFFIC nella carreggiata opposta, fermi alla distanza indicata davanti allo
+        spawn e nella corsia indicata; partono al tick 1 insieme all'ego (update_traffic). La partenza puo'
+        stare oltre un incrocio, se la corsia lo attraversa dritta; ci si ferma dove la corsia gira (fine strada)
+        e mai dentro un incrocio.
         """
         if not OPPOSITE_TRAFFIC:
             return
-        lane_wp = self._opposite_lane(ego_spawn, ped_location)
-        if lane_wp is None:
+        lanes = self._opposite_lanes(ego_spawn, ped_location)
+        if lanes is None:
             print("  AVVISO: corsia opposta non trovata, niente traffico")
             return
 
-        # Punto piu' lontano raggiungibile lungo la corsia opposta senza entrare in un incrocio
-        # (la corsia va verso l'ego: previous() si allontana)
-        far_wp = lane_wp
-        for _ in range(300):
-            prev = far_wp.previous(1.0)
-            if not prev or prev[0].is_junction:
-                break
-            far_wp = prev[0]
-        limit = self._rel(ego_spawn, far_wp.transform.location)[0]
-        starts = []
-        for name, kmh, ahead_m in reversed(OPPOSITE_TRAFFIC):
-            starts.insert(0, min(ahead_m, limit))
-            limit = starts[0] - 12.0
+        def rel_x(wp):
+            return self._rel(ego_spawn, wp.transform.location)[0]
 
-        for (name, kmh, ahead_m), x_start in zip(OPPOSITE_TRAFFIC, starts):
+        def lat(wp):
+            return self._rel(ego_spawn, wp.transform.location)[1]
+
+        def step(wp, farther):
+            """Waypoint a 1 m lungo la corsia (farther: allontanandosi dall'ego, cioe' previous(), visto che
+            la corsia va verso l'ego); negli incroci il ramo piu' dritto. None se finisce o se esce di oltre
+            1.5 m dalla linea della corsia (svolta)."""
+            nxt = wp.previous(1.0) if farther else wp.next(1.0)
+            if not nxt:
+                return None
+            best = min(nxt, key=lambda w: abs(lat(w) - lat(wp)))
+            return best if abs(lat(best) - lane_y) <= 1.5 else None
+
+        for name, kmh, x_start, lane in OPPOSITE_TRAFFIC:
             # A passi di 1 m lungo la corsia fino a meno di 1 m da x_start; si ferma se un passo
-            # non avvicina (curva, fine corsia)
-            wp = lane_wp
-            x = self._rel(ego_spawn, wp.transform.location)[0]
-            for _ in range(400):
+            # non avvicina o se la corsia gira
+            wp = lanes[lane]
+            lane_y = lat(wp)
+            x = rel_x(wp)
+            for _ in range(600):
                 diff = x_start - x
                 if abs(diff) < 1.0:
                     break
-                nxt = wp.previous(1.0) if diff > 0 else wp.next(1.0)
-                if not nxt:
+                nxt = step(wp, diff > 0)
+                if nxt is None or abs(x_start - rel_x(nxt)) >= abs(diff):
                     break
-                new_x = self._rel(ego_spawn, nxt[0].transform.location)[0]
-                if abs(x_start - new_x) >= abs(diff):
+                wp, x = nxt, rel_x(nxt)
+            # Mai fermi dentro un incrocio: prima si prova poco oltre, se la corsia gira si torna indietro
+            for farther in (True, False):
+                w = wp
+                for _ in range(80):
+                    if not w.is_junction:
+                        break
+                    w = step(w, farther)
+                    if w is None:
+                        break
+                if w is not None and not w.is_junction:
+                    wp, x = w, rel_x(w)
                     break
-                wp, x = nxt[0], new_x
+            if abs(x - x_start) > 5.0:
+                print(f"  AVVISO: {name} non raggiunge {x_start:.0f} m (la strada finisce o gira), parte da {x:.0f} m")
             tf = carla.Transform(wp.transform.location + carla.Location(z=0.5), wp.transform.rotation)
             blueprints = self.blueprint_lib.filter(name) or self.blueprint_lib.filter('vehicle.audi.etron')
             vehicle = self.world.try_spawn_actor(blueprints[0], tf)
@@ -485,7 +529,9 @@ class MovingScenario:
             vehicle.apply_control(carla.VehicleControl(brake=1.0))
             self.vehicles.append(vehicle)
             self.opp_traffic.append({'actor': vehicle, 'speed': kmh / 3.6, 'current': None})
-            print(f"  Traffico opposto: {vehicle.type_id} parte da {x:.0f} m davanti all'ego, fino a {kmh:.0f} km/h")
+            lateral = self._rel(ego_spawn, wp.transform.location)[1]
+            print(f"  Traffico opposto: {vehicle.type_id} parte da {x:.0f} m davanti all'ego, corsia {lane} "
+                  f"({lateral:+.1f} m), fino a {kmh:.0f} km/h")
 
     def _spawn_lead_traffic(self, ego_spawn):
         """
@@ -779,13 +825,104 @@ def apply_contrast_reduction(rgb_frame, severity):
     return np.array(reduced)
 
 
+_LENS_DROPS_CACHE = {}
+
+
+def _lens_drops_maps(height, width, severity):
+    """
+    Mappe (map_x, map_y, alpha) delle gocce sulla lente, calcolate una volta per risoluzione e severita'.
+    Le gocce sono sempre nelle stesse posizioni (seed fisso): stesse gocce in ogni frame e in ogni run.
+    Ogni goccia fa da piccola lente: mostra la scena intorno, rimpicciolita e capovolta.
+    """
+    key = (height, width, severity)
+    if key in _LENS_DROPS_CACHE:
+        return _LENS_DROPS_CACHE[key]
+    # (numero di gocce, raggio minimo e massimo in px a 640 px di larghezza)
+    params = {1: (30, 6, 16), 2: (70, 7, 26)}
+    n_drops, r_min, r_max = params.get(severity, params[2])
+    scale = width / CORRUPTION_REF_WIDTH
+    rng = np.random.default_rng(1000 + severity)
+    map_x, map_y = np.meshgrid(np.arange(width, dtype=np.float32), np.arange(height, dtype=np.float32))
+    alpha = np.zeros((height, width), dtype=np.float32)
+    for _ in range(n_drops):
+        cx, cy = rng.uniform(0, width), rng.uniform(0, height)
+        r = rng.uniform(r_min, r_max) * scale
+        ry = r * rng.uniform(1.0, 1.3)                    # gocce un po' allungate in verticale
+        x0, x1 = int(max(0, cx - r)), int(min(width, cx + r + 1))
+        y0, y1 = int(max(0, cy - ry)), int(min(height, cy + ry + 1))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        xs, ys = np.meshgrid(np.arange(x0, x1, dtype=np.float32), np.arange(y0, y1, dtype=np.float32))
+        dx, dy = (xs - cx) / r, (ys - cy) / ry
+        d = np.sqrt(dx * dx + dy * dy)
+        inside = d < 1.0
+        # Rifrazione: dentro la goccia si vede la scena capovolta, presa da una zona 2.5 volte piu' grande
+        map_x[y0:y1, x0:x1][inside] = (cx - (xs - cx) * 2.5)[inside]
+        map_y[y0:y1, x0:x1][inside] = (cy - (ys - cy) * 2.5)[inside]
+        edge = np.clip((1.0 - d) / 0.25, 0.0, 1.0)        # bordo sfumato
+        alpha[y0:y1, x0:x1] = np.maximum(alpha[y0:y1, x0:x1], edge)
+    maps = (map_x, map_y, alpha[..., None])
+    _LENS_DROPS_CACHE[key] = maps
+    return maps
+
+
+def apply_lens_drops(rgb_frame, severity):
+    """
+    Gocce d'acqua sulla lente (quelle della pioggia di CARLA sono poche, leggere e cambiano da run a run):
+    ogni goccia e' fuori fuoco e mostra
+    la scena rifratta. Da usare insieme al meteo 'rain'.
+    severity: 1 = mild (30 gocce piccole), 2 = severe (70 gocce piu' grandi + velo d'acqua, sigma 1 px)
+    """
+    if severity <= 0:
+        return rgb_frame
+    h, w = rgb_frame.shape[:2]
+    map_x, map_y, alpha = _lens_drops_maps(h, w, severity)
+    scale = _resolution_scale(rgb_frame)
+    refracted = cv2.remap(rgb_frame, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    refracted = cv2.GaussianBlur(refracted, (0, 0), sigmaX=2.0 * scale)    # la goccia e' fuori fuoco
+    base = rgb_frame
+    if severity >= 2:
+        base = cv2.GaussianBlur(rgb_frame, (0, 0), sigmaX=1.0 * scale)     # velo d'acqua su tutta la lente
+    out = base.astype(np.float32) * (1.0 - alpha) + (refracted.astype(np.float32) * 1.08 + 6.0) * alpha
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+_GLARE_CACHE = {}
+
+
+def apply_glare(rgb_frame, severity):
+    """
+    Abbagliamento del sole basso davanti alla camera (nel controluce di CARLA il sole finisce dietro
+    i palazzi): sole saturato, alone luminoso e velo che riduce il contrasto in tutta l'immagine.
+    Da usare insieme al meteo 'backlight'. Sole fisso al centro, poco sopra l'orizzonte.
+    severity: 1 = mild, 2 = severe
+    """
+    if severity <= 0:
+        return rgb_frame
+    h, w = rgb_frame.shape[:2]
+    key = (h, w, severity)
+    if key not in _GLARE_CACHE:
+        # (raggio del sole, intensita' e raggio dell'alone, velo uniforme); raggi in px a 640 px
+        params = {1: (12.0, 0.50, 80.0, 0.10), 2: (18.0, 0.75, 130.0, 0.22)}
+        r_sun, halo_a, halo_r, veil = params.get(severity, params[2])
+        scale = w / CORRUPTION_REF_WIDTH
+        xs, ys = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
+        r = np.sqrt((xs - 0.5 * w) ** 2 + (ys - 0.38 * h) ** 2) / scale
+        light = np.exp(-(r / r_sun) ** 2) + halo_a / (1.0 + (r / halo_r) ** 2) + veil
+        _GLARE_CACHE[key] = np.clip(light, 0.0, 1.0)[..., None]
+    light = _GLARE_CACHE[key]
+    color = np.array([255.0, 244.0, 220.0], dtype=np.float32)               # luce calda del sole
+    out = rgb_frame.astype(np.float32) * (1.0 - light) + color * light
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
 def apply_corruption(rgb_frame, corruption_type, severity):
     """
     Dispatcher: applica la corruzione specificata al frame.
     
     Args:
         rgb_frame: numpy array RGB
-        corruption_type: 'none', 'blur', 'noise', 'motion_blur', 'contrast'
+        corruption_type: 'none', 'blur', 'noise', 'motion_blur', 'contrast', 'lens_drops', 'glare'
         severity: livello di severita (0 = nessuna)
     
     Returns:
@@ -799,6 +936,8 @@ def apply_corruption(rgb_frame, corruption_type, severity):
         'noise': apply_noise,
         'motion_blur': apply_motion_blur,
         'contrast': apply_contrast_reduction,
+        'lens_drops': apply_lens_drops,
+        'glare': apply_glare,
     }
     
     fn = corruption_functions.get(corruption_type)
@@ -1158,14 +1297,17 @@ EGO_ACCEL_MPS2 = 2.5          # rampa di partenza da fermo: ~4.4 s e ~25 m per a
 PED_CROSSING = True           # Scenario 1: il pedone attraversa (dallo spartitraffico a sinistra verso destra)
                               # e arriva davanti all'angolo destro dell'ego quando il paraurti raggiunge la sua linea (incidente)
 PED_START_DELAY_S = 5.0       # il pedone parte 5 s dopo l'ego: attraversa lentamente durante l'avvicinamento
-# Scenario 1: traffico nella carreggiata opposta. Tutti partono insieme all'ego e accelerano con la
-# stessa rampa (EGO_ACCEL_MPS2) fino alla propria velocita'. Chi parte piu' lontano va piu' piano,
-# quindi nella stessa corsia nessuno raggiunge il veicolo davanti.
-# (blueprint, velocita' km/h, distanza di partenza davanti allo spawn dell'ego in m)
+# Scenario 1: traffico nella carreggiata opposta (due corsie). Tutti partono insieme all'ego e accelerano
+# con la stessa rampa (EGO_ACCEL_MPS2) fino alla propria velocita'. Nella stessa corsia chi parte piu'
+# lontano va piu' piano, quindi nessuno raggiunge il veicolo davanti.
+# (blueprint, velocita' km/h, distanza di partenza davanti allo spawn dell'ego in m,
+#  corsia: 'inner' = vicina allo spartitraffico, 'outer' = la piu' a sinistra rispetto all'ego)
+# A ~91 m c'e' un incrocio con la strada che prosegue dritta fino a ~148 m, dove finisce in un incrocio a T:
+# Audi e Mini partono prima del primo incrocio, la moto oltre (lo attraversa a velocita' costante).
 OPPOSITE_TRAFFIC = [
-    ('vehicle.audi.etron', 40.0, 90.0),
-    ('vehicle.yamaha.yzf', 35.0, 110.0),
-    ('vehicle.mini.cooper_s_2021', 30.0, 130.0),
+    ('vehicle.audi.etron', 40.0, 78.0, 'inner'),
+    ('vehicle.mini.cooper_s_2021', 30.0, 90.0, 'inner'),
+    ('vehicle.yamaha.yzf', 35.0, 140.0, 'outer'),
 ]
 # Scenario 1: veicoli nella corsia di destra (stesso senso dell'ego), oltre la linea del pedone: vanno piano
 # verso il semaforo in fondo per tutto il run. Con LEAD_STOP_AT_JUNCTION = True si fermano invece
@@ -1214,7 +1356,8 @@ IOU_MATCH_THRESHOLD = 0.30  # IoU minimo per associare una detection alla ground
 MIN_GT_HEIGHT_PX = 4        # target piu' bassi di cosi' (in pixel) sono considerati non visibili
 MIN_GT_VISIBLE_FRAC = 0.5   # frazione minima del box di ground truth dentro l'inquadratura
 
-# CONDIZIONI DA TESTARE (16): meteo base, meteo severo e intermedio, combinazioni, blur su 4 livelli
+# CONDIZIONI DA TESTARE (20): meteo base, meteo severo e intermedio, combinazioni, blur su 4 livelli,
+# gocce sulla lente (con rain) e abbagliamento (con backlight) su 2 livelli
 # Traccia: "clear weather, rain, fog, night, backlight, and blur"
 #          "Add mild and severe visual corruptions to identify clear failure thresholds"
 
@@ -1242,6 +1385,13 @@ TESTS = [
     {'weather': 'clear', 'corruption': 'blur', 'severity': 2},
     {'weather': 'clear', 'corruption': 'blur', 'severity': 3},  # mild
     {'weather': 'clear', 'corruption': 'blur', 'severity': 4},  # severe
+
+    # --- Corruzioni insieme al meteo che le provoca (in CARLA leggere o assenti): gocce sulla lente
+    #     con la pioggia, abbagliamento del sole con il controluce ---
+    {'weather': 'rain',      'corruption': 'lens_drops', 'severity': 1},  # mild
+    {'weather': 'rain',      'corruption': 'lens_drops', 'severity': 2},  # severe
+    {'weather': 'backlight', 'corruption': 'glare',      'severity': 1},  # mild
+    {'weather': 'backlight', 'corruption': 'glare',      'severity': 2},  # severe
 ]
 
 
