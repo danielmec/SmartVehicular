@@ -2,7 +2,7 @@
 Scenario 2 - Semaforo (Red Light Warning): esegue il benchmark su tutte le condizioni di TESTS
 (cella 34 del notebook).
 
-Output in <batch>/scenario2_traffic_light/, dove <batch> e' una nuova vers2/output_batch_<timestamp>/
+Output in <batch>/scenario2_traffic_light/, dove <batch> e' una nuova adverseWeather/output_batch_<timestamp>/
 oppure la cartella data con --batch-dir (per esempio quella appena creata dallo Scenario 1,
 come nel notebook dove i due scenari condividono la stessa cartella):
     results/run_summary.csv, results/frame_metrics.csv, results/config.json
@@ -18,7 +18,7 @@ Uso:
     carlapy scenario2_semaforo.py --senza-camera   # solo moto e spectator, senza camera ne' YOLO
 
 Con --senza-camera le metriche di detection sono vuote: l'output va in
-vers2/test_senza_camera_<timestamp>/ e non viene letto da analisi_grafici.py.
+adverseWeather/test_senza_camera_<timestamp>/ e non viene letto da analisi_grafici.py.
 """
 
 import argparse

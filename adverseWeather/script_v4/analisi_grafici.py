@@ -1,7 +1,7 @@
 """
 Project 11 - Analisi dei risultati e grafici (celle 36-48 del notebook).
 
-Legge TUTTI i batch validi (con config.json) in vers2/output_batch_*, come nel notebook:
+Legge TUTTI i batch validi (con config.json) in adverseWeather/output_batch_*, come nel notebook:
 le metriche per condizione sono la media tra i batch. Salva tabelle e grafici nella
 cartella plots/ dell'ultimo batch di ogni scenario:
     summary_<ped|tl>.csv/.md, collapse_overview.png, recall_vs_distance.png,
@@ -32,7 +32,7 @@ from PIL import Image
 plt.style.use('seaborn-whitegrid')
 sns.set_palette("husl")
 
-# I percorsi output_batch_* sono relativi alla cartella vers2, come nel notebook
+# I percorsi output_batch_* sono relativi alla cartella adverseWeather, come nel notebook
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 

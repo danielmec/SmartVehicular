@@ -1,7 +1,7 @@
 """
 Scenario 1 - Pedone (FCW): esegue il benchmark su tutte le condizioni di TESTS (cella 32 del notebook).
 
-Output in vers2/output_batch_<timestamp>/ (o nella cartella data con --batch-dir):
+Output in adverseWeather/output_batch_<timestamp>/ (o nella cartella data con --batch-dir):
     results/run_summary.csv, results/frame_metrics.csv, results/config.json
     detection_samples/<run_label>/*.png
 
@@ -9,12 +9,12 @@ I CSV vengono aggiornati dopo ogni condizione; config.json viene scritto solo a 
 completato: l'analisi (analisi_grafici.py) considera validi solo i batch con config.json.
 
 Uso:
-    carlapy scenario1_pedone.py                  # tutte le 16 condizioni
+    carlapy scenario1_pedone.py                  # tutte le 20 condizioni
     carlapy scenario1_pedone.py --tests 1        # solo clear (prova veloce)
     carlapy scenario1_pedone.py --senza-camera   # solo moto e spectator, senza camera ne' YOLO
 
 Con --senza-camera le metriche di detection sono vuote: l'output va in
-vers2/test_senza_camera_<timestamp>/ e non viene letto da analisi_grafici.py.
+adverseWeather/test_senza_camera_<timestamp>/ e non viene letto da analisi_grafici.py.
 """
 
 import argparse

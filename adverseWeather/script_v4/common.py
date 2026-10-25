@@ -31,7 +31,7 @@ from ultralytics import YOLO
 import carla
 
 
-# Cartella vers2: modello e output_batch_* stanno qui come nel notebook,
+# Cartella adverseWeather: modello e output_batch_* stanno qui come nel notebook,
 # indipendentemente dalla cartella da cui si lanciano gli script
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

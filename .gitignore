@@ -4,11 +4,14 @@
 # Consenti a Git di esplorare le cartelle per trovare i file inclusi
 !*/
 
-# Non ignorare la cartella vers2 e tutto il suo contenuto
-!vers2/**
+# Non ignorare la cartella adverseWeather e tutto il suo contenuto
+!adverseWeather/**
 
-# Non ignorare questo file .gitignore
+# Non ignorare questo file .gitignore e il README
 !.gitignore
+!README.md
 
-# Ignora gli output batch vecchi
-vers2/old_batches
+# Ignora gli output batch vecchi e i file di sistema
+adverseWeather/old_batches
+.DS_Store
+__pycache__/
