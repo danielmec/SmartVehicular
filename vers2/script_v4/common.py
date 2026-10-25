@@ -25,7 +25,7 @@ from datetime import datetime
 import cv2
 import numpy as np
 import pandas as pd
-from PIL import Image, ImageEnhance
+from PIL import Image
 from ultralytics import YOLO
 
 import carla
@@ -755,7 +755,7 @@ def frame_to_rgb(image):
     return array[:, :, :3][:, :, ::-1].copy()  # .copy() CRUCIALE: evita sovrascrittura buffer C++ CARLA!
 
 # CORRUZIONI VISIVE — Funzioni per degradare le immagini
-# I parametri in pixel (raggio blur, kernel motion blur) sono definiti per una larghezza
+# I parametri in pixel (sigma del blur, raggio delle gocce e dell'alone) sono definiti per una larghezza
 # di riferimento di 640 px e scalati con la risoluzione reale: la stessa severita'
 # produce la stessa sfocatura RELATIVA a qualunque risoluzione.
 CORRUPTION_REF_WIDTH = 640
@@ -776,53 +776,6 @@ def apply_blur(rgb_frame, severity):
     radius = radius_map.get(severity, 3.5) * _resolution_scale(rgb_frame)
     # OpenCV: ~5-9x piu' veloce di PIL a 1280x720, risultato equivalente (sigma = radius)
     return cv2.GaussianBlur(rgb_frame, (0, 0), sigmaX=radius, sigmaY=radius)
-
-
-def apply_noise(rgb_frame, severity):
-    """
-    Applica Gaussian noise al frame.
-    severity: 1=mild (sigma=15), 2=moderate (sigma=30), 3=severe (sigma=50)
-    """
-    if severity <= 0:
-        return rgb_frame
-    sigma_map = {1: 15, 2: 30, 3: 50}
-    sigma = sigma_map.get(severity, 30)
-    noise = np.random.normal(0, sigma, rgb_frame.shape).astype(np.float32)
-    noisy = np.clip(rgb_frame.astype(np.float32) + noise, 0, 255).astype(np.uint8)
-    return noisy
-
-
-def apply_motion_blur(rgb_frame, severity):
-    """
-    Applica motion blur orizzontale (simula vibrazioni camera).
-    severity: 1=mild (k=3), 2=moderate (k=7)
-    """
-    if severity <= 0:
-        return rgb_frame
-    kernel_size_map = {1: 3, 2: 7}
-    k = kernel_size_map.get(severity, 5)
-    k = max(1, int(round(k * _resolution_scale(rgb_frame))) | 1)  # dispari
-    
-    # Kernel di motion blur orizzontale (una riga di k pesi uguali)
-    # NB: PIL.ImageFilter.Kernel accetta solo kernel 3x3 o 5x5, per questo si usa OpenCV
-    kernel = np.zeros((k, k), dtype=np.float32)
-    kernel[k // 2, :] = 1.0 / k
-    return cv2.filter2D(rgb_frame, -1, kernel)
-
-
-def apply_contrast_reduction(rgb_frame, severity):
-    """
-    Riduce il contrasto dell'immagine.
-    severity: 1=mild (0.7), 2=moderate (0.4)
-    """
-    if severity <= 0:
-        return rgb_frame
-    factor_map = {1: 0.7, 2: 0.4}
-    factor = factor_map.get(severity, 0.4)
-    pil_image = Image.fromarray(rgb_frame)
-    enhancer = ImageEnhance.Contrast(pil_image)
-    reduced = enhancer.enhance(factor)
-    return np.array(reduced)
 
 
 _LENS_DROPS_CACHE = {}
@@ -922,7 +875,7 @@ def apply_corruption(rgb_frame, corruption_type, severity):
     
     Args:
         rgb_frame: numpy array RGB
-        corruption_type: 'none', 'blur', 'noise', 'motion_blur', 'contrast', 'lens_drops', 'glare'
+        corruption_type: 'none', 'blur', 'lens_drops', 'glare'
         severity: livello di severita (0 = nessuna)
     
     Returns:
@@ -933,9 +886,6 @@ def apply_corruption(rgb_frame, corruption_type, severity):
     
     corruption_functions = {
         'blur': apply_blur,
-        'noise': apply_noise,
-        'motion_blur': apply_motion_blur,
-        'contrast': apply_contrast_reduction,
         'lens_drops': apply_lens_drops,
         'glare': apply_glare,
     }
