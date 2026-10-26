@@ -64,7 +64,7 @@ Note:
    truth, configurazione, modulo di warning). 
 5. Eseguire la **Sezione 10** (batch dello Scenario 1) e la **Sezione 11** (batch dello Scenario 2).
    Ogni batch esegue tutte le 20 condizioni senza interventi e salva i dati in una nuova cartella
-   `output_batch_<timestamp>`.
+   `output_batch_<timestamp>`. Le 20 condizioni richiedono 12 run CARLA (vedi "Condizioni testate").
 6. Per un secondo batch: rieseguire la cella della **Sezione 7** (crea una nuova cartella di output) e
    poi di nuovo le Sezioni 10 e 11.
 7. Eseguire le **Sezioni 12-15** per l'analisi: leggono tutti i batch completi, ne fanno la media e
@@ -86,6 +86,16 @@ Note:
 
 Le corruzioni sono deterministiche (gocce in posizioni fisse, sole sempre nello stesso punto), quindi
 sono identiche in ogni frame e in ogni run.
+
+Le condizioni sono 20, ma i run CARLA sono solo 12, uno per meteo (righe 1-12). La scena la cambia solo
+il meteo: blur, gocce e abbagliamento sono post-processing dell'immagine e vengono applicati alle immagini
+del run del loro meteo (clear, rain, backlight), sugli stessi identici frame della condizione base.
+
+Durante il run CARLA la camera viene letta un tick ogni 2 (10 immagini al secondo di tempo simulato) e le
+immagini restano in RAM; corruzione e YOLO girano dopo il run, per ogni condizione di quel meteo. Il
+benchmark è a ciclo aperto (l'auto non frena al warning), quindi i risultati sono identici a quelli di
+un'elaborazione durante il run. Con `REALTIME_PACING = True` (Sezione 7) ogni tick dura almeno 0.05 s di
+tempo reale e la simulazione si vede a velocità naturale.
 
 ## Metriche ed esiti
 
