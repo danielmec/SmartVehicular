@@ -1,6 +1,6 @@
 # Project 11: Adverse Weather Robustness Benchmark
 
-Benchmark di robustezza di una funzione ADAS solo camera in CARLA 0.9.16. Il sistema sotto test è
+Benchmark di robustezza di una funzione ADAS solo camera in CARLA 0.9.16. Per il banchmark si usa
 YOLOv8n pre-addestrato su COCO (nessun fine-tuning) con un modulo di warning basato sul
 time-to-collision (TTC). Il benchmark misura come degrada in due scenari fissi e ripetibili, al variare
 del meteo e con corruzioni visive dell'immagine.
