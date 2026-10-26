@@ -28,6 +28,7 @@ Da Anaconda Prompt:
 ```bat
 :: 1. Crea e attiva l'ambiente (va bene qualunque 3.10.x)
 conda create -n adverseWeather python=3.10.12 -y
+conda init
 conda activate adverseWeather
 
 :: 2. Controlla la versione CUDA del driver: in alto a destra "CUDA Version"
