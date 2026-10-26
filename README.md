@@ -14,17 +14,6 @@ del meteo e con corruzioni visive dell'immagine.
 Ogni condizione viene classificata come **OK**, **DEGRADATO** o **COLLASSO** rispetto alla baseline in
 clear.
 
-## Struttura del repository
-
-```
-adverseWeather/
-    Project11_Adverse_Weather_Benchmark_v5.ipynb   notebook del benchmark (versione da eseguire)
-    requirements.txt                               dipendenze Python
-    yolov8n.pt                                     pesi di YOLOv8n
-    output_batch_<timestamp>/                      creata a ogni batch (vedi "Output")
-    old_batches/                                   batch vecchi, esclusa da git
-```
-
 ## Requisiti
 
 - **CARLA 0.9.16** (server), con la mappa `Town10HD_Opt`, che è quella caricata all'avvio di CARLA.
@@ -65,17 +54,13 @@ Note:
 ## Esecuzione con il notebook
 
 1. Avviare il server CARLA con la qualità di default:
-   - `CarlaUE4.exe` (con la finestra dello spectator), oppure
-   - `CarlaUE4.exe -RenderOffScreen` (senza finestra, più leggero sui PC lenti; le immagini della
-     camera sono le stesse).
+   - `CarlaUE4.exe` 
 2. Aprire `adverseWeather/Project11_Adverse_Weather_Benchmark_v5.ipynb` e scegliere il kernel
    **"Project 11 - CARLA 0.9.16 (Python 3.10)"**.
 3. Eseguire la Sezione 1: la cella di fix delle dipendenze e `%pip install -r requirements.txt`.
    **Poi riavviare il kernel**: serve per `matplotlib-inline 0.1.6`, altrimenti i grafici danno errore.
 4. Eseguire le Sezioni 1-9 (import, connessione a `localhost:2000`, meteo, scenari, modello, ground
-   truth, configurazione, modulo di warning). La cella degli import deve stampare
-   `CUDA (Nvidia GPU) available: True`; se stampa `False`, PyTorch è la versione per CPU (vedi
-   "Problemi comuni").
+   truth, configurazione, modulo di warning). 
 5. Eseguire la **Sezione 10** (batch dello Scenario 1) e la **Sezione 11** (batch dello Scenario 2).
    Ogni batch esegue tutte le 20 condizioni senza interventi e salva i dati in una nuova cartella
    `output_batch_<timestamp>`.
@@ -85,13 +70,8 @@ Note:
    salvano tabelle, grafici, confronti side-by-side e failure case nella cartella `plots` dell'ultimo
    batch.
 
-L'analisi non ha bisogno del server CARLA: le Sezioni 12-15 si possono rieseguire in qualunque momento,
-anche su un altro computer.
 
-**Importante:** l'analisi fa la media di tutte le cartelle `output_batch_*` complete. I batch che non
-devono essere mediati con i nuovi (per esempio quelli fatti con una configurazione diversa) vanno
-spostati in `old_batches/` prima di lanciare i nuovi.
-
+**Importante:** l'analisi fa la media di tutte le cartelle `output_batch_*` complete. 
 ## Condizioni testate
 
 | N. | Gruppo | Condizione |
@@ -142,8 +122,4 @@ Un batch è considerato completo, e quindi letto dall'analisi, solo se contiene 
   python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
   ```
   e poi riavviare il kernel.
-- **Errore dei grafici dopo l'installazione dei requirements:** riavviare il kernel (`matplotlib-inline`).
-- **Errore di connessione a CARLA:** il server deve essere avviato prima del notebook e in ascolto su
-  `localhost:2000`.
-- **Avviso sulla mappa:** gli spawn point sono calibrati su `Town10HD_Opt`. Se il server ha un'altra
-  mappa caricata, riavviare CARLA oppure caricarla con `PythonAPI/util/config.py --map Town10HD_Opt`.
+
